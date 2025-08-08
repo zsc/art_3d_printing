@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第21章：深度生成模型</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class=""><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class=""><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class=""><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class=""><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class="active"><a href="./chapter21.html">第21章：深度生成模型</a></li><li class=""><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class=""><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="21">第21章：深度生成模型</h1>
+<p>本章深入探讨深度学习在3D形状生成中的应用，涵盖从早期的体素GAN到最新的扩散模型。我们将详细推导各种生成模型的数学原理，分析其在3D打印中的实际应用，并讨论如何控制生成过程以满足设计约束。重点关注模型的表示能力、训练稳定性和生成质量之间的权衡。</p>
+<h2 id="211-3d-gan">21.1 3D-GAN与体素生成</h2>
+<h3 id="2111">21.1.1 体素表示的数学基础</h3>
+<p>体素（Voxel）是3D空间的规则网格离散化，可视为2D图像像素在三维的推广。对于分辨率为 $N^3$ 的体素网格，占用函数定义为：</p>
+<p>$$O: \{0,1,...,N-1\}^3 \rightarrow \{0,1\}$$
+其中 $O(i,j,k) = 1$ 表示体素被占用，$O(i,j,k) = 0$ 表示空体素。</p>
+<p>连续形式可以表示为指示函数：
+$$\chi(x,y,z) = \begin{cases} 
+1 &amp; \text{if } (x,y,z) \in \mathcal{S} \\
+0 &amp; \text{otherwise}
+\end{cases}$$
+体素化过程涉及采样定理。根据Nyquist准则，为准确表示具有最大频率 $f_{max}$ 的形状细节，体素分辨率需满足：
+$$\Delta x \leq \frac{1}{2f_{max}}$$
+<strong>概率体素表示</strong>：实际应用中常采用概率占用：
+$$O: \{0,1,...,N-1\}^3 \rightarrow [0,1]$$
+这允许表示不确定性和软边界。概率解释：
+$$p(occupied|i,j,k) = O(i,j,k)$$
+<strong>有符号距离场（SDF）体素化</strong>：
+$$\Phi: \{0,1,...,N-1\}^3 \rightarrow \mathbb{R}$$
+其中 $\Phi(i,j,k)$ 表示到最近表面的有符号距离：</p>
+<ul>
+<li>$\Phi &lt; 0$：内部</li>
+<li>$\Phi = 0$：表面</li>
+<li>$\Phi &gt; 0$：外部</li>
+</ul>
+<p>SDF的梯度给出表面法向：
+$$\mathbf{n} = \frac{\nabla\Phi}{||\nabla\Phi||}$$
+<strong>稀疏体素表示</strong>：
+大多数体素为空，可用稀疏数据结构：</p>
+<ul>
+<li>哈希表：$\mathcal{H}: \mathbb{Z}^3 \rightarrow \{0,1\}$</li>
+<li>八叉树：递归细分非空区域</li>
+<li>Run-length编码：压缩连续空体素</li>
+</ul>
+<p>稀疏率定义：
+$$\rho = \frac{|\{(i,j,k): O(i,j,k) = 1\}|}{N^3}$$
+典型3D模型的稀疏率 $\rho &lt; 0.1$。</p>
+<h3 id="2112">21.1.2 生成对抗网络基础</h3>
+<p>GAN通过对抗训练学习数据分布。生成器 $G: \mathcal{Z} \rightarrow \mathcal{X}$ 从潜在空间映射到数据空间，判别器 $D: \mathcal{X} \rightarrow [0,1]$ 估计样本来自真实分布的概率。</p>
+<p>原始GAN目标函数：
+$$\min_G \max_D V(D,G) = \mathbb{E}_{x \sim p_{data}}[\log D(x)] + \mathbb{E}_{z \sim p_z}[\log(1 - D(G(z)))]$$
+在最优判别器 $D^*$ 下，生成器的损失等价于最小化JS散度：
+$$L_G = 2JS(p_{data} || p_G) - 2\log 2$$
+其中Jensen-Shannon散度定义为：
+$$JS(P||Q) = \frac{1}{2}KL(P||M) + \frac{1}{2}KL(Q||M), \quad M = \frac{P+Q}{2}$$</p>
+<h3 id="2113-3d-gan">21.1.3 3D-GAN架构</h3>
+<p>3D-GAN将2D卷积扩展到3D空间。3D卷积操作：
+$$Y_{i,j,k,c'} = \sum_{di,dj,dk,c} W_{di,dj,dk,c,c'} \cdot X_{i+di,j+dj,k+dk,c} + b_{c'}$$
+<strong>生成器架构详解</strong>：</p>
+<p>生成器采用分数步长卷积（转置卷积）逐步上采样：</p>
+<ul>
+<li>输入：$z \in \mathbb{R}^{200}$ (潜在向量)</li>
+<li>全连接层：$z \rightarrow \mathbb{R}^{256 \times 4 \times 4 \times 4}$</li>
+<li>3D转置卷积层序列：$4^3 \rightarrow 8^3 \rightarrow 16^3 \rightarrow 32^3 \rightarrow 64^3$</li>
+</ul>
+<p>每层的详细配置：</p>
+<div class="codehilite"><pre><span></span><code>Layer 1: ConvTranspose3d(256, 128, kernel=4, stride=2, padding=1)
+Layer 2: ConvTranspose3d(128, 64, kernel=4, stride=2, padding=1)  
+Layer 3: ConvTranspose3d(64, 32, kernel=4, stride=2, padding=1)
+Layer 4: ConvTranspose3d(32, 16, kernel=4, stride=2, padding=1)
+Layer 5: ConvTranspose3d(16, 1, kernel=4, stride=2, padding=1)
+</code></pre></div>
+
+<p>激活函数选择：</p>
+<ul>
+<li>中间层：ReLU或LeakyReLU($\alpha = 0.2$)</li>
+<li>输出层：Sigmoid（二值占用）或Tanh（SDF）</li>
+</ul>
+<p><strong>判别器架构</strong>：</p>
+<p>判别器采用相反的架构，使用步长卷积下采样：
+$$64^3 \rightarrow 32^3 \rightarrow 16^3 \rightarrow 8^3 \rightarrow 4^3 \rightarrow 256 \rightarrow 1$$
+使用Batch Normalization稳定训练：
+$$\hat{x} = \frac{x - \mu_B}{\sqrt{\sigma_B^2 + \epsilon}}$$
+其中 $\mu_B, \sigma_B^2$ 是mini-batch的均值和方差。</p>
+<p><strong>感受野计算</strong>：
+对于核大小 $k$，步长 $s$，层数 $L$ 的网络：
+$$RF = 1 + \sum_{l=1}^L (k_l - 1) \prod_{j=1}^{l-1} s_j$$
+例如，5层网络每层 $k=4, s=2$：
+$$RF = 1 + 3 \cdot (1 + 2 + 4 + 8 + 16) = 94$$</p>
+<h3 id="2114">21.1.4 训练稳定性与模式坍塌</h3>
+<p><strong>梯度惩罚（WGAN-GP）</strong>：
+$$L = \mathbb{E}_{\tilde{x} \sim p_g}[D(\tilde{x})] - \mathbb{E}_{x \sim p_r}[D(x)] + \lambda \mathbb{E}_{\hat{x} \sim p_{\hat{x}}}[(||\nabla_{\hat{x}}D(\hat{x})||_2 - 1)^2]$$
+其中 $\hat{x} = \epsilon x + (1-\epsilon)\tilde{x}$，$\epsilon \sim U[0,1]$。</p>
+<p><strong>谱归一化</strong>：
+$$W_{SN} = \frac{W}{\sigma(W)}$$
+其中 $\sigma(W)$ 是权重矩阵的最大奇异值，通过幂迭代法近似计算。</p>
+<h3 id="2115">21.1.5 多分辨率体素生成</h3>
+<p>为克服内存限制，采用八叉树（Octree）表示：
+$$\text{Memory} = O(N^2) \text{ vs } O(N^3)$$
+自适应分辨率损失：
+$$L_{adaptive} = \sum_{l=0}^{L} \alpha_l \cdot L_{GAN}^{(l)}$$
+其中 $L_{GAN}^{(l)}$ 是第 $l$ 层分辨率的对抗损失。</p>
+<h2 id="212-vae">21.2 点云VAE与图卷积</h2>
+<h3 id="2121">21.2.1 点云的概率建模</h3>
+<p>点云 $\mathcal{P} = \{p_i\}_{i=1}^N$，$p_i \in \mathbb{R}^3$ 可视为从底层曲面采样的点集。概率密度函数：
+$$p(\mathcal{P}) = \prod_{i=1}^N p(p_i | \mathcal{S})$$
+由于点云的置换不变性，需要设计置换等变的网络架构。</p>
+<h3 id="2122-vae">21.2.2 变分自编码器（VAE）原理</h3>
+<p>VAE通过变分推断学习潜在表示。证据下界（ELBO）：
+$$\log p(x) \geq \mathbb{E}_{q(z|x)}[\log p(x|z)] - KL(q(z|x) || p(z))$$
+重参数化技巧：
+$$z = \mu + \sigma \odot \epsilon, \quad \epsilon \sim \mathcal{N}(0, I)$$
+对于多元高斯分布，KL散度的闭式解：
+$$KL = \frac{1}{2}\sum_{j=1}^J (1 + \log(\sigma_j^2) - \mu_j^2 - \sigma_j^2)$$</p>
+<h3 id="2123-pointnet">21.2.3 PointNet编码器</h3>
+<p>PointNet通过对称函数实现置换不变性：
+$$f(\{x_1, ..., x_n\}) = \gamma \circ g(MAX_{i=1,...,n}\{h(x_i)\})$$
+其中 $h: \mathbb{R}^3 \rightarrow \mathbb{R}^K$ 是逐点MLP，MAX是逐通道最大池化。</p>
+<p><strong>详细网络结构</strong>：</p>
+<ol>
+<li>
+<p><strong>输入变换网络（T-Net 3×3）</strong>：
+   - 输入：$N \times 3$ 点云
+   - MLP：$(3, 64, 128, 1024)$
+   - 全局池化：$1024 \rightarrow 1024$
+   - FC层：$(1024, 512, 256, 9)$
+   - 输出：$3 \times 3$ 变换矩阵</p>
+</li>
+<li>
+<p><strong>特征变换网络（T-Net 64×64）</strong>：
+   - 输入：$N \times 64$ 特征
+   - 类似结构，输出 $64 \times 64$ 矩阵</p>
+</li>
+<li>
+<p><strong>主网络</strong>：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>Input(N×3) → T-Net → MLP(64,64) → T-Net → MLP(64,128,1024) → MaxPool → FC(512,256,K)
+</code></pre></div>
+
+<p>T-Net学习仿射变换矩阵，增强旋转不变性：
+$$x'_i = T \cdot x_i$$
+正则化损失确保变换接近正交：
+$$L_{reg} = ||I - AA^T||_F^2$$
+<strong>PointNet++的分层采样</strong>：</p>
+<ol>
+<li><strong>采样层</strong>：最远点采样（FPS）</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>初始化：S = {random point}
+while |S| &lt; M:
+    p = argmax_{p∈P\S} min_{q∈S} ||p-q||
+    S = S ∪ {p}
+</code></pre></div>
+
+<ol start="2">
+<li>
+<p><strong>分组层</strong>：球查询（Ball Query）
+$$\mathcal{N}(p) = \{q : ||q - p|| &lt; r\}$$</p>
+</li>
+<li>
+<p><strong>特征聚合</strong>：
+$$f'_i = MAX_{j \in \mathcal{N}(i)} MLP(f_j, p_j - p_i)$$
+<strong>关键点云特征</strong>：</p>
+</li>
+</ol>
+<ul>
+<li>局部特征：$f_{local} = h(x_i)$</li>
+<li>全局特征：$f_{global} = MAX_i(f_{local})$</li>
+<li>混合特征：$f_{hybrid} = [f_{local}; f_{global}]$</li>
+</ul>
+<h3 id="2124-gcn">21.2.4 图卷积网络（GCN）</h3>
+<p>点云的k-NN图表示：$\mathcal{G} = (\mathcal{V}, \mathcal{E})$</p>
+<p>EdgeConv操作：
+$$x'_i = \max_{j \in \mathcal{N}(i)} h_\Theta(x_i, x_j - x_i)$$
+谱图卷积基于图拉普拉斯矩阵的特征分解：
+$$L = I - D^{-1/2}AD^{-1/2} = U\Lambda U^T$$
+谱域卷积：
+$$g_\theta * x = U g_\theta(\Lambda) U^T x$$
+ChebNet使用切比雪夫多项式近似：
+$$g_\theta(\Lambda) \approx \sum_{k=0}^K \theta_k T_k(\tilde{\Lambda})$$</p>
+<h3 id="2125-foldingnet">21.2.5 FoldingNet解码器</h3>
+<p>FoldingNet通过折叠2D网格生成3D点云：
+$$\Phi: \mathbb{R}^2 \times \mathbb{R}^m \rightarrow \mathbb{R}^3$$
+折叠操作：
+$$p_i = \Phi(g_i, z) = MLP([g_i; z])$$
+其中 $g_i$ 是2D网格点，$z$ 是潜在编码。</p>
+<p>Chamfer距离用于训练：
+$$d_{CD}(S_1, S_2) = \sum_{x \in S_1} \min_{y \in S_2} ||x-y||^2 + \sum_{y \in S_2} \min_{x \in S_1} ||x-y||^2$$</p>
+<h2 id="213-point-eshap-e">21.3 扩散模型：Point-E、Shap-E</h2>
+<h3 id="2131">21.3.1 扩散过程的数学基础</h3>
+<p>前向扩散过程定义为马尔可夫链：
+$$q(x_t | x_{t-1}) = \mathcal{N}(x_t; \sqrt{1-\beta_t}x_{t-1}, \beta_t I)$$
+累积形式：
+$$q(x_t | x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t}x_0, (1-\bar{\alpha}_t)I)$$
+其中 $\alpha_t = 1 - \beta_t$，$\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$。</p>
+<p>反向过程：
+$$p_\theta(x_{t-1} | x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t, t), \Sigma_\theta(x_t, t))$$</p>
+<h3 id="2132-ddpm">21.3.2 去噪扩散概率模型（DDPM）</h3>
+<p>训练目标简化为去噪自编码器：
+$$L_{simple} = \mathbb{E}_{t,x_0,\epsilon}[||\epsilon - \epsilon_\theta(x_t, t)||^2]$$
+其中 $x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$，$\epsilon \sim \mathcal{N}(0, I)$。</p>
+<p><strong>变分下界推导</strong>：
+负对数似然的变分下界：
+$$-\log p_\theta(x_0) \leq \mathbb{E}_q\left[\frac{q(x_{1:T}|x_0)}{p_\theta(x_{0:T})}\right]$$
+展开为：
+$$L_{VLB} = L_T + \sum_{t=2}^T L_{t-1} + L_0$$
+其中：</p>
+<ul>
+<li>$L_T = D_{KL}(q(x_T|x_0) || p(x_T))$（先验匹配）</li>
+<li>$L_{t-1} = D_{KL}(q(x_{t-1}|x_t,x_0) || p_\theta(x_{t-1}|x_t))$（去噪）</li>
+<li>$L_0 = -\log p_\theta(x_0|x_1)$（重构）</li>
+</ul>
+<p><strong>后验分布</strong>：
+$$q(x_{t-1}|x_t,x_0) = \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t,x_0), \tilde{\beta}_t I)$$
+其中：
+$$\tilde{\mu}_t = \frac{\sqrt{\bar{\alpha}_{t-1}}\beta_t}{1-\bar{\alpha}_t}x_0 + \frac{\sqrt{\alpha_t}(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}x_t$$</p>
+<p>$$\tilde{\beta}_t = \frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}\beta_t$$
+采样时的均值预测：
+$$\mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}}(x_t - \frac{\beta_t}{\sqrt{1-\bar{\alpha}_t}}\epsilon_\theta(x_t, t))$$
+方差可以固定为 $\sigma_t^2 = \beta_t$ 或 $\sigma_t^2 = \frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}\beta_t$。</p>
+<p><strong>噪声调度（Noise Schedule）</strong>：
+线性调度：
+$$\beta_t = \beta_{min} + \frac{t-1}{T-1}(\beta_{max} - \beta_{min})$$
+余弦调度（改进版）：
+$$\bar{\alpha}_t = \frac{f(t)}{f(0)}, \quad f(t) = \cos\left(\frac{t/T + s}{1 + s} \cdot \frac{\pi}{2}\right)^2$$
+其中 $s = 0.008$ 是小偏移量。</p>
+<h3 id="2133-point-e">21.3.3 Point-E架构</h3>
+<p>Point-E采用两阶段生成：</p>
+<ol>
+<li>文本到图像：使用GLIDE生成条件图像</li>
+<li>图像到点云：条件扩散模型</li>
+</ol>
+<p>点云扩散的特殊考虑：</p>
+<ul>
+<li>坐标归一化：$x \in [-1, 1]^3$</li>
+<li>采样策略：FPS（最远点采样）保证均匀分布</li>
+<li>条件编码：CLIP图像特征</li>
+</ul>
+<p>损失函数：
+$$L = \mathbb{E}_{t,x_0,\epsilon,c}[||\epsilon - \epsilon_\theta(\sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon, t, c)||^2]$$</p>
+<h3 id="2134-shap-e">21.3.4 Shap-E：隐式函数扩散</h3>
+<p>Shap-E生成神经隐式表示而非显式几何：
+$$f_\theta: \mathbb{R}^3 \times \mathbb{R}^d \rightarrow \mathbb{R}$$
+隐式函数参数化为MLP权重，通过扩散模型生成：
+$$\theta \sim p_\phi(\theta | c)$$
+训练分两阶段：</p>
+<ol>
+<li>编码器训练：$E: \mathcal{X} \rightarrow \Theta$</li>
+<li>扩散模型训练：在潜在空间 $\Theta$ 上</li>
+</ol>
+<p>渲染使用可微光线投射：
+$$C(r) = \int_0^{\infty} T(t) \sigma(r(t)) c(r(t)) dt$$
+其中 $T(t) = \exp(-\int_0^t \sigma(r(s))ds)$。</p>
+<h3 id="2135-ddimdpm-solver">21.3.5 加速采样：DDIM与DPM-Solver</h3>
+<p>DDIM（去噪扩散隐式模型）提供确定性采样：
+$$x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}\hat{x}_0 + \sqrt{1-\bar{\alpha}_{t-1}-\sigma_t^2}\epsilon_\theta(x_t, t) + \sigma_t\epsilon$$
+其中 $\hat{x}_0 = \frac{x_t - \sqrt{1-\bar{\alpha}_t}\epsilon_\theta(x_t, t)}{\sqrt{\bar{\alpha}_t}}$。</p>
+<p>DPM-Solver使用指数积分器：
+$$x_t = \bar{\alpha}_t x_0 + \bar{\sigma}_t \int_0^{\lambda_t} e^{\lambda} \epsilon_\theta(x_\lambda, \lambda) d\lambda$$
+二阶求解器：
+$$x_{t-1} \approx \sqrt{\bar{\alpha}_{t-1}}x_0 + \sqrt{1-\bar{\alpha}_{t-1}}[\epsilon_\theta(x_t, t) + \frac{\sigma_{t-1} - \sigma_t}{2\sigma_t}(\epsilon_\theta(x_t, t) - \epsilon_\theta(x_s, s))]$$</p>
+<h2 id="214-transformer">21.4 自回归模型与Transformer</h2>
+<h3 id="2141">21.4.1 序列建模视角</h3>
+<p>将3D形状表示为token序列：
+$$\mathcal{S} = (s_1, s_2, ..., s_n)$$
+自回归分解：
+$$p(\mathcal{S}) = \prod_{i=1}^n p(s_i | s_{&lt;i})$$
+对数似然：
+$$\log p(\mathcal{S}) = \sum_{i=1}^n \log p(s_i | s_{&lt;i})$$</p>
+<h3 id="2142-transformer">21.4.2 Transformer架构回顾</h3>
+<p>自注意力机制：
+$$\text{Attention}(Q,K,V) = \text{softmax}(\frac{QK^T}{\sqrt{d_k}})V$$
+<strong>缩放因子的重要性</strong>：
+不使用缩放时，点积方差为 $d_k$，导致softmax饱和：
+$$\text{Var}(q^Tk) = d_k \cdot \text{Var}(q_i) \cdot \text{Var}(k_i) = d_k$$
+缩放后方差归一化为1。</p>
+<p>多头注意力：
+$$\text{MultiHead}(Q,K,V) = \text{Concat}(head_1, ..., head_h)W^O$$
+其中 $head_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V)$。</p>
+<p><strong>位置编码方法</strong>：</p>
+<ol>
+<li>
+<p><strong>绝对位置编码</strong>（原始Transformer）：
+$$PE_{(pos,2i)} = \sin(pos/10000^{2i/d_{model}})$$
+$$PE_{(pos,2i+1)} = \cos(pos/10000^{2i/d_{model}})$$</p>
+</li>
+<li>
+<p><strong>相对位置编码</strong>（T5风格）：
+$$\text{Attention}_{ij} = \frac{(q_i + r_{i-j})k_j^T}{\sqrt{d_k}}$$</p>
+</li>
+<li>
+<p><strong>旋转位置编码（RoPE）</strong>：
+$$f_q(x_m, m) = R_m \cdot W_q x_m$$
+其中旋转矩阵：
+$$R_m = \begin{pmatrix}
+\cos m\theta &amp; -\sin m\theta \\
+\sin m\theta &amp; \cos m\theta
+\end{pmatrix}$$
+<strong>层归一化</strong>：
+Pre-LN（更稳定）：
+$$x_{l+1} = x_l + \text{Attn}(\text{LN}(x_l))$$
+Post-LN（原始）：
+$$x_{l+1} = \text{LN}(x_l + \text{Attn}(x_l))$$
+<strong>前馈网络（FFN）</strong>：
+$$\text{FFN}(x) = \max(0, xW_1 + b_1)W_2 + b_2$$
+扩展因子通常为4：$d_{ff} = 4 \cdot d_{model}$</p>
+</li>
+</ol>
+<p><strong>GLU变体</strong>（性能更好）：
+$$\text{SwiGLU}(x) = (xW_1) \cdot \text{Swish}(xW_2) \cdot W_3$$</p>
+<h3 id="2143-polygen">21.4.3 PolyGen：网格顶点序列生成</h3>
+<p>PolyGen将网格生成分解为两步：</p>
+<ol>
+<li>顶点生成：$p(V|I) = \prod_{i=1}^n p(v_i|v_{&lt;i}, I)$</li>
+<li>面生成：$p(F|V,I) = \prod_{j=1}^m p(f_j|f_{&lt;j}, V, I)$</li>
+</ol>
+<p>顶点量化到8位整数：
+$$v_{quantized} = \lfloor 255 \cdot \frac{v - v_{min}}{v_{max} - v_{min}} \rfloor$$
+指针网络用于面索引：
+$$p(f_{j,k} = i) = \text{softmax}(e_i^T \text{tanh}(W[h_j; v_i]))$$</p>
+<h3 id="2144-mesh-gpt">21.4.4 Mesh-GPT与离散表示</h3>
+<p>VQ-VAE将连续几何量化为离散码本：
+$$z_q = \arg\min_{z_k \in \mathcal{C}} ||z_e - z_k||^2$$
+码本学习使用指数移动平均：
+$$c_i^{(t+1)} = \gamma c_i^{(t)} + (1-\gamma) \frac{\sum_{z_q=c_i} z_e}{N_i}$$
+GPT在离散潜在空间建模：
+$$p(z) = \prod_{i=1}^L p(z_i | z_{&lt;i})$$</p>
+<h3 id="2145-get3dtransformer">21.4.5 GET3D：几何感知Transformer</h3>
+<p>GET3D引入几何归纳偏置：</p>
+<ul>
+<li>局部参考框架</li>
+<li>等变特征</li>
+<li>分层采样</li>
+</ul>
+<p>SE(3)等变注意力：
+$$\alpha_{ij} = \text{softmax}(\frac{f_\theta(||x_i - x_j||, \langle v_i, x_j - x_i \rangle)}{\sqrt{d}})$$
+分层token合并：
+$$z_{l+1} = \text{Pool}(\{z_l^i\}_{i \in \mathcal{N}(j)})$$</p>
+<h2 id="215">21.5 条件生成与可控性</h2>
+<h3 id="2151-cvae">21.5.1 条件变分自编码器（CVAE）</h3>
+<p>CVAE的ELBO：
+$$\mathcal{L}(x,c) = \mathbb{E}_{q(z|x,c)}[\log p(x|z,c)] - KL(q(z|x,c)||p(z|c))$$
+后验分布参数化：
+$$q(z|x,c) = \mathcal{N}(z; \mu_\phi(x,c), \sigma_\phi^2(x,c))$$
+先验可以是条件高斯：
+$$p(z|c) = \mathcal{N}(z; \mu_{prior}(c), \sigma_{prior}^2(c))$$</p>
+<h3 id="2152">21.5.2 分类器引导</h3>
+<p>利用预训练分类器 $p(c|x)$ 引导生成：
+$$\nabla_x \log p(x|c) = \nabla_x \log p(x) + \nabla_x \log p(c|x)$$
+在扩散模型中：
+$$\hat{\epsilon}_\theta(x_t, t, c) = \epsilon_\theta(x_t, t) - \sqrt{1-\bar{\alpha}_t} \nabla_{x_t} \log p(c|x_t)$$
+引导强度 $w$ 控制条件强度：
+$$\hat{\epsilon} = \epsilon_\theta(x_t, t) - w \sqrt{1-\bar{\alpha}_t} \nabla_{x_t} \log p(c|x_t)$$</p>
+<h3 id="2153-cfg">21.5.3 无分类器引导（CFG）</h3>
+<p>同时训练条件和无条件模型：
+$$\hat{\epsilon}_\theta(x_t, t, c) = (1+w) \epsilon_\theta(x_t, t, c) - w \epsilon_\theta(x_t, t, \emptyset)$$
+训练时随机dropout条件：
+$$L = \mathbb{E}_{t,x_0,\epsilon,c,p}[(1-p)||\epsilon - \epsilon_\theta(x_t, t, c)||^2 + p||\epsilon - \epsilon_\theta(x_t, t, \emptyset)||^2]$$</p>
+<h3 id="2154">21.5.4 几何约束满足</h3>
+<p>硬约束通过投影实现：
+$$x_{constrained} = \arg\min_{x \in \mathcal{C}} ||x - x_{generated}||^2$$
+对于线性约束 $Ax = b$：
+$$x_{proj} = x - A^T(AA^T)^{-1}(Ax - b)$$
+<strong>常见几何约束及实现</strong>：</p>
+<ol>
+<li>
+<p><strong>体积约束</strong>：
+$$V(x) = \sum_{(i,j,k) \in x} \Delta x^3$$
+软约束损失：
+$$L_{vol} = (V(x) - V_{target})^2$$
+硬约束投影（缩放）：
+$$x_{scaled} = x \cdot \sqrt[3]{\frac{V_{target}}{V(x)}}$$</p>
+</li>
+<li>
+<p><strong>对称约束</strong>：
+反射对称：
+$$L_{sym} = ||x - \mathcal{R}(x)||^2$$
+其中 $\mathcal{R}$ 是关于平面的反射算子。</p>
+</li>
+</ol>
+<p>旋转对称（$C_n$群）：
+$$L_{rot} = \sum_{k=1}^{n-1} ||x - R_{2\pi k/n}(x)||^2$$</p>
+<ol start="3">
+<li><strong>连通性约束</strong>：
+使用持续同调的0维Betti数 $\beta_0$：
+$$L_{conn} = (\beta_0(x) - 1)^2$$
+连通分量通过并查集计算：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>对每个体素<span class="nv">v</span>：
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nv">occupied</span><span class="ss">(</span><span class="nv">v</span><span class="ss">)</span>:
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="nv">neighbor</span><span class="w"> </span><span class="nv">n</span><span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="mi">26</span><span class="o">-</span>邻域:
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nv">occupied</span><span class="ss">(</span><span class="nv">n</span><span class="ss">)</span>:
+<span class="w">                </span><span class="nv">union</span><span class="ss">(</span><span class="nv">v</span>,<span class="w"> </span><span class="nv">n</span><span class="ss">)</span>
+连通分量数<span class="w"> </span><span class="o">=</span><span class="w"> </span>不相交集合数
+</code></pre></div>
+
+<ol start="4">
+<li>
+<p><strong>可打印性约束</strong>：
+悬垂角度约束：
+$$L_{overhang} = \sum_{f \in faces} \max(0, \cos(\theta_f) - \cos(\theta_{max}))^2$$
+其中 $\theta_f$ 是面法向与构建方向夹角。</p>
+</li>
+<li>
+<p><strong>壁厚约束</strong>：
+最小壁厚通过距离场：
+$$L_{thickness} = \sum_{p \in surface} \max(0, t_{min} - |SDF(p)|)^2$$
+软约束通过损失函数：
+$$L_{total} = L_{generation} + \lambda_1 L_{vol} + \lambda_2 L_{sym} + \lambda_3 L_{conn} + \lambda_4 L_{print}$$
+<strong>拉格朗日乘子法</strong>：
+对于等式约束 $g(x) = 0$：
+$$\mathcal{L}(x, \lambda) = f(x) + \lambda^T g(x)$$
+KKT条件：</p>
+</li>
+</ol>
+<ul>
+<li>平稳性：$\nabla_x \mathcal{L} = 0$</li>
+<li>原始可行性：$g(x) = 0$</li>
+<li>对偶可行性：$\lambda \geq 0$（不等式约束）</li>
+<li>互补松弛：$\lambda_i g_i(x) = 0$</li>
+</ul>
+<h3 id="2155">21.5.5 潜在空间操作</h3>
+<p>线性插值：
+$$z_{interp} = (1-\alpha)z_1 + \alpha z_2$$
+球面插值（保持范数）：
+$$z_{slerp} = \frac{\sin((1-\alpha)\theta)}{\sin\theta}z_1 + \frac{\sin(\alpha\theta)}{\sin\theta}z_2$$
+其中 $\cos\theta = \frac{z_1 \cdot z_2}{||z_1|| \cdot ||z_2||}$。</p>
+<p>语义方向发现（SeFa）：
+$$\mathbf{A} = [\mathbf{a}_1, ..., \mathbf{a}_k] = \text{PCA}(\{W^T W\})$$
+编辑操作：
+$$z_{edit} = z + \alpha \mathbf{a}_i$$</p>
+<h2 id="_1">本章小结</h2>
+<p>本章系统介绍了深度生成模型在3D形状生成中的应用：</p>
+<p><strong>核心概念</strong>：</p>
+<ol>
+<li><strong>体素GAN</strong>：将2D GAN扩展到3D空间，通过对抗训练生成体素网格，面临内存限制和模式坍塌挑战</li>
+<li><strong>点云VAE</strong>：利用变分推断学习点云的潜在表示，需要处理置换不变性和不规则采样</li>
+<li><strong>扩散模型</strong>：通过逐步去噪过程生成高质量3D形状，Point-E和Shap-E展示了强大的生成能力</li>
+<li><strong>自回归Transformer</strong>：将3D生成视为序列预测问题，PolyGen和Mesh-GPT实现了高精度网格生成</li>
+<li><strong>条件控制</strong>：通过分类器引导、无分类器引导和约束投影实现可控生成</li>
+</ol>
+<p><strong>关键公式</strong>：</p>
+<ul>
+<li>GAN目标：$\min_G \max_D \mathbb{E}_{x}[\log D(x)] + \mathbb{E}_{z}[\log(1-D(G(z)))]$</li>
+<li>VAE ELBO：$\log p(x) \geq \mathbb{E}_{q(z|x)}[\log p(x|z)] - KL(q(z|x)||p(z))$</li>
+<li>扩散前向过程：$q(x_t|x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t}x_0, (1-\bar{\alpha}_t)I)$</li>
+<li>自注意力：$\text{Attention}(Q,K,V) = \text{softmax}(\frac{QK^T}{\sqrt{d_k}})V$</li>
+<li>无分类器引导：$\hat{\epsilon} = (1+w)\epsilon_\theta(x_t,t,c) - w\epsilon_\theta(x_t,t,\emptyset)$</li>
+</ul>
+<p><strong>实际应用</strong>：</p>
+<ul>
+<li>快速原型设计：从文本或图像生成3D模型</li>
+<li>设计空间探索：通过潜在空间插值生成变体</li>
+<li>缺失部分补全：条件生成修复破损模型</li>
+<li>风格迁移：学习并应用不同设计风格</li>
+</ul>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>练习21.1</strong> 推导3D卷积的参数量和计算复杂度
+考虑输入尺寸 $N \times N \times N \times C_{in}$，卷积核大小 $K \times K \times K$，输出通道 $C_{out}$。</p>
+<details markdown="1">
+<summary>提示</summary>
+
+<p>考虑每个输出位置需要的乘加运算数，以及总的输出体素数。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>参数量：$K^3 \times C_{in} \times C_{out} + C_{out}$（包括偏置）</p>
+<p>计算复杂度：$O(N^3 \times K^3 \times C_{in} \times C_{out})$</p>
+<p>内存需求（激活）：$O(N^3 \times C_{out})$</p>
+<p>对于典型的 $64^3$ 体素，$K=4$，$C_{in}=128$，$C_{out}=64$：</p>
+<ul>
+<li>参数：$4^3 \times 128 \times 64 + 64 = 524,352$</li>
+<li>FLOPs：$64^3 \times 4^3 \times 128 \times 64 \approx 137 \text{ GFLOPs}$</li>
+</ul>
+</details>
+<p><strong>练习21.2</strong> 证明PointNet的最大池化操作是置换不变的
+给定点集 $\{x_1, ..., x_n\}$ 和置换 $\pi$，证明：
+$$\max_i f(x_i) = \max_i f(x_{\pi(i)})$$</p>
+<details>
+<summary>提示</summary>
+<p>利用最大值操作的交换律和结合律。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>设 $S = \{f(x_1), ..., f(x_n)\}$ 为变换后的特征集合。</p>
+<p>对于任意置换 $\pi$，置换后的集合 $S' = \{f(x_{\pi(1)}), ..., f(x_{\pi(n)})\}$。</p>
+<p>由于置换只是改变元素顺序，不改变集合本身：$S = S'$</p>
+<p>因此：$\max(S) = \max(S')$</p>
+<p>即：$\max_i f(x_i) = \max_i f(x_{\pi(i)})$</p>
+<p>这保证了PointNet对点云顺序的不变性。</p>
+</details>
+<p><strong>练习21.3</strong> 计算扩散模型的信噪比
+给定 $x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$，计算信噪比SNR(t)。</p>
+<details>
+<summary>提示</summary>
+<p>信噪比定义为信号方差与噪声方差之比。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>信号部分：$\sqrt{\bar{\alpha}_t}x_0$，方差：$\bar{\alpha}_t \text{Var}(x_0) = \bar{\alpha}_t$（假设 $x_0$ 已归一化）</p>
+<p>噪声部分：$\sqrt{1-\bar{\alpha}_t}\epsilon$，方差：$(1-\bar{\alpha}_t)\text{Var}(\epsilon) = 1-\bar{\alpha}_t$</p>
+<p>信噪比：
+$$\text{SNR}(t) = \frac{\bar{\alpha}_t}{1-\bar{\alpha}_t}$$
+对数信噪比：
+$$\log \text{SNR}(t) = \log \bar{\alpha}_t - \log(1-\bar{\alpha}_t)$$
+当 $t \to 0$：$\text{SNR} \to \infty$（纯信号）
+当 $t \to T$：$\text{SNR} \to 0$（纯噪声）</p>
+</details>
+<p><strong>练习21.4</strong> 分析Transformer的感受野
+对于 $L$ 层Transformer，每层有 $H$ 个注意力头，分析有效感受野的增长。</p>
+<details>
+<summary>提示</summary>
+<p>考虑信息如何通过注意力机制传播。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>单层Transformer的感受野是全局的（每个token可以attend到所有其他token）。</p>
+<p>但有效感受野取决于注意力权重的稀疏性：</p>
+<ul>
+<li>第1层：直接连接，感受野 = 序列长度 $N$</li>
+<li>第 $l$ 层：通过 $l$ 跳连接，理论感受野仍为 $N$</li>
+</ul>
+<p>实际有效感受野受限于：</p>
+<ol>
+<li>注意力权重的熵：$H(\alpha) = -\sum_i \alpha_i \log \alpha_i$</li>
+<li>注意力头的多样性：不同头关注不同模式</li>
+<li>位置编码的衰减：远距离位置的区分度降低</li>
+</ol>
+<p>经验观察：</p>
+<ul>
+<li>浅层：局部模式（相邻token）</li>
+<li>中层：语法结构（中等距离）</li>
+<li>深层：语义关系（长距离）</li>
+</ul>
+<p>有效感受野约为：$R_{eff} \approx \sqrt{L \cdot N}$</p>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>练习21.5</strong> 设计一个结合GAN和扩散模型优点的混合架构
+要求：利用GAN的快速采样和扩散模型的高质量生成。</p>
+<details>
+<summary>提示</summary>
+<p>考虑在不同分辨率或不同阶段使用不同模型。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p><strong>混合架构设计</strong>：</p>
+<ol>
+<li>
+<p><strong>粗略生成阶段（GAN）</strong>：
+   - 使用StyleGAN生成低分辨率形状 $x_{coarse}$
+   - 优点：单次前向传播，速度快
+   - 输出：$16^3$ 体素或1024点的点云</p>
+</li>
+<li>
+<p><strong>精细化阶段（扩散）</strong>：
+   - 条件扩散模型：$p(x_{fine}|x_{coarse})$
+   - 使用较少的扩散步数（如50步而非1000步）
+   - 输出：$64^3$ 体素或8192点的点云</p>
+</li>
+<li>
+<p><strong>训练策略</strong>：
+   - 阶段1：独立训练GAN
+   - 阶段2：固定GAN，训练条件扩散模型
+   - 阶段3：联合微调（可选）</p>
+</li>
+<li>
+<p><strong>损失函数</strong>：
+$$L_{hybrid} = L_{GAN}(x_{coarse}) + \lambda L_{diffusion}(x_{fine}|x_{coarse}) + \mu L_{consistency}(x_{fine}, x_{coarse})$$
+其中一致性损失确保多尺度一致：
+$$L_{consistency} = ||\text{Downsample}(x_{fine}) - x_{coarse}||^2$$</p>
+</li>
+<li>
+<p><strong>采样加速</strong>：
+   - 使用DDIM进行确定性采样
+   - 知识蒸馏：用完整模型训练更少步数的学生模型</p>
+</li>
+</ol>
+<p>预期性能：</p>
+<ul>
+<li>生成时间：GAN(10ms) + 扩散(500ms) = 510ms</li>
+<li>质量：接近完整扩散模型</li>
+<li>可控性：保留条件生成能力</li>
+</ul>
+</details>
+<p><strong>练习21.6</strong> 推导并实现点云的最优传输距离
+给定两个点云 $P, Q$，计算Wasserstein距离。</p>
+<details>
+<summary>提示</summary>
+<p>将问题转化为线性规划，使用Sinkhorn算法近似求解。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p><strong>Wasserstein距离定义</strong>：
+$$W_p(P,Q) = \left(\inf_{\gamma \in \Pi(P,Q)} \int_{X \times Y} d(x,y)^p d\gamma(x,y)\right)^{1/p}$$
+<strong>离散形式（地球移动距离EMD）</strong>：
+$$\text{EMD}(P,Q) = \min_{T \in \mathcal{T}} \sum_{i,j} T_{ij} \cdot d(p_i, q_j)$$
+约束条件：</p>
+<ul>
+<li>$T_{ij} \geq 0$（非负性）</li>
+<li>$\sum_j T_{ij} = \frac{1}{n}$（行和约束）</li>
+<li>$\sum_i T_{ij} = \frac{1}{m}$（列和约束）</li>
+</ul>
+<p><strong>Sinkhorn算法（熵正则化）</strong>：
+$$T^* = \arg\min_{T \in \mathcal{T}} \langle T, C \rangle - \epsilon H(T)$$
+其中 $H(T) = -\sum_{ij} T_{ij} \log T_{ij}$ 是熵。</p>
+<p>迭代更新：</p>
+<div class="codehilite"><pre><span></span><code>初始化：u = ones(n), v = ones(m)
+K = exp(-C/ε)  # 核矩阵
+for iteration in range(max_iter):
+    u = 1 / (K @ v)
+    v = 1 / (K.T @ u)
+T = diag(u) @ K @ diag(v)
+</code></pre></div>
+
+<p><strong>复杂度分析</strong>：</p>
+<ul>
+<li>精确EMD：$O(n^3 \log n)$（线性规划）</li>
+<li>Sinkhorn：$O(n^2 \cdot \text{iter})$</li>
+<li>近似比：$(1 + \epsilon)$-近似</li>
+</ul>
+<p><strong>几何性质</strong>：</p>
+<ol>
+<li>度量性质：非负性、对称性、三角不等式</li>
+<li>对刚体变换不变（使用适当的地面距离）</li>
+<li>对异常值鲁棒（相比Chamfer距离）</li>
+</ol>
+</details>
+<p><strong>练习21.7</strong> 分析条件扩散模型的模式覆盖问题
+比较分类器引导和无分类器引导的多样性-保真度权衡。</p>
+<details>
+<summary>提示</summary>
+<p>从梯度的方差和偏差角度分析。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p><strong>分类器引导分析</strong>：</p>
+<p>梯度估计：
+$$\nabla_x \log p(x|y) = \nabla_x \log p(x) + \nabla_x \log p(y|x)$$
+方差分析：</p>
+<ul>
+<li>$\text{Var}[\nabla_x \log p(y|x)]$ 依赖于分类器质量</li>
+<li>噪声水平 $t$ 较大时，分类器梯度不可靠</li>
+<li>导致方差累积：$\text{Var}_{total} = \text{Var}_{score} + w^2 \text{Var}_{classifier}$</li>
+</ul>
+<p><strong>无分类器引导分析</strong>：</p>
+<p>有效得分函数：
+$$s_{cfg}(x,y) = (1+w)s(x,y) - ws(x,\emptyset)$$
+偏差-方差分解：</p>
+<ul>
+<li>偏差：$\text{Bias} = w(\mathbb{E}[s(x,y)] - \mathbb{E}[s(x,\emptyset)])$</li>
+<li>方差：$\text{Var} = (1+w)^2\text{Var}[s(x,y)] + w^2\text{Var}[s(x,\emptyset)]$</li>
+</ul>
+<p><strong>模式覆盖比较</strong>：</p>
+<ol>
+<li>
+<p><strong>多样性指标</strong>（使用最近邻）：
+$$\text{Coverage} = \frac{|\{y \in Y_{real} : \exists x \in X_{gen}, d(x,y) &lt; \epsilon\}|}{|Y_{real}|}$$</p>
+</li>
+<li>
+<p><strong>保真度指标</strong>（FID分数）：
+$$\text{FID} = ||\mu_{real} - \mu_{gen}||^2 + \text{Tr}(\Sigma_{real} + \Sigma_{gen} - 2\sqrt{\Sigma_{real}\Sigma_{gen}})$$</p>
+</li>
+<li>
+<p><strong>权衡曲线</strong>：
+   - $w=0$：高多样性，低保真度
+   - $w \uparrow$：保真度提升，多样性下降
+   - 最优 $w^* \approx 1.5-3.0$（经验值）</p>
+</li>
+</ol>
+<p><strong>理论结果</strong>：
+CFG相当于采样自锐化分布：
+$$p_{cfg}(x|y) \propto p(x|y)^{1+w} / p(x)^w$$
+当 $w \to \infty$：收敛到模式（MAP估计）
+当 $w = 0$：原始条件分布</p>
+</details>
+<p><strong>练习21.8</strong> 设计一个用于3D打印的多尺度生成模型
+要求支持局部细节控制和全局结构约束。</p>
+<details>
+<summary>提示</summary>
+<p>考虑分层表示和条件独立性假设。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p><strong>多尺度架构设计</strong>：</p>
+<ol>
+<li>
+<p><strong>分层表示</strong>：
+   - Level 0：包围盒和主轴 $(B, A) \in \mathbb{R}^{12}$
+   - Level 1：粗网格 $M_1 \in \mathbb{R}^{8^3}$
+   - Level 2：中等网格 $M_2 \in \mathbb{R}^{32^3}$
+   - Level 3：精细网格 $M_3 \in \mathbb{R}^{128^3}$</p>
+</li>
+<li>
+<p><strong>条件生成链</strong>：
+$$p(M_3, M_2, M_1, B, A) = p(A)p(B|A)p(M_1|B,A)p(M_2|M_1)p(M_3|M_2)$$</p>
+</li>
+<li>
+<p><strong>局部细节控制</strong>：
+   用户可指定区域 $R$ 和期望特征 $F$：
+$$p(M_3|M_2, R, F) = p(M_3^R|F) \cdot p(M_3^{\bar{R}}|M_2)$$</p>
+</li>
+<li>
+<p><strong>全局约束满足</strong>：
+   - 体积约束：$V(M) = \sum_{ijk} M_{ijk} \cdot \Delta x^3 = V_{target}$
+   - 质心约束：$\text{COM}(M) = c_{target}$
+   - 主轴约束：通过PCA对齐</p>
+</li>
+<li>
+<p><strong>训练策略</strong>：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>for level in [0, 1, 2, 3]:
+    if level == 0:
+        train_prior(p(A), p(B|A))
+    else:
+        train_super_resolution(p(M_level | M_{level-1}))
+</code></pre></div>
+
+<ol start="6">
+<li>
+<p><strong>损失函数</strong>：
+$$L_{total} = \sum_{l=1}^3 \lambda_l L_{recon}^{(l)} + \mu L_{perceptual} + \nu L_{constraint}$$
+感知损失使用预训练的3D特征提取器：
+$$L_{perceptual} = \sum_{k} ||\phi_k(M_{real}) - \phi_k(M_{gen})||^2$$</p>
+</li>
+<li>
+<p><strong>推理时编辑</strong>：
+   - 全局编辑：修改 $(B, A)$，重新生成所有级别
+   - 局部编辑：固定 $M_1, M_2$，只重新生成 $M_3$ 的局部区域
+   - 细节迁移：从另一个模型提取 $M_3^{local}$，融合到当前模型</p>
+</li>
+</ol>
+<p><strong>优势</strong>：</p>
+<ul>
+<li>内存效率：每个级别独立处理</li>
+<li>可控性：不同尺度的独立控制</li>
+<li>质量：粗到细的生成避免全局不一致</li>
+</ul>
+<p><strong>实现考虑</strong>：</p>
+<ul>
+<li>使用U-Net作为超分辨率网络</li>
+<li>注意力机制用于长程依赖</li>
+<li>渐进式训练提高稳定性</li>
+</ul>
+</details>
+<h2 id="_5">常见陷阱与错误</h2>
+<h3 id="1">1. 训练不稳定</h3>
+<ul>
+<li><strong>问题</strong>：GAN训练时生成器或判别器崩溃</li>
+<li><strong>原因</strong>：学习率不平衡、梯度爆炸、模式坍塌</li>
+<li><strong>解决</strong>：使用梯度惩罚、谱归一化、渐进式训练</li>
+</ul>
+<h3 id="2">2. 内存溢出</h3>
+<ul>
+<li><strong>问题</strong>：3D数据内存需求呈立方增长</li>
+<li><strong>原因</strong>：$64^3 = 262,144$ vs $64^2 = 4,096$</li>
+<li><strong>解决</strong>：使用稀疏表示、八叉树、混合精度训练</li>
+</ul>
+<h3 id="3">3. 模式坍塌</h3>
+<ul>
+<li><strong>问题</strong>：生成器只产生少数几种形状</li>
+<li><strong>原因</strong>：判别器过强、训练数据不平衡</li>
+<li><strong>解决</strong>：使用mini-batch discrimination、unrolled GAN</li>
+</ul>
+<h3 id="4-artifacts">4. 几何artifacts</h3>
+<ul>
+<li><strong>问题</strong>：生成的形状有洞、自相交、不连通</li>
+<li><strong>原因</strong>：缺乏几何约束、离散化误差</li>
+<li><strong>解决</strong>：添加拓扑损失、使用隐式表示、后处理修复</li>
+</ul>
+<h3 id="5">5. 条件泄露</h3>
+<ul>
+<li><strong>问题</strong>：条件信息没有正确影响生成</li>
+<li><strong>原因</strong>：条件编码不充分、模型容量不足</li>
+<li><strong>解决</strong>：使用cross-attention、增强条件编码、辅助任务</li>
+</ul>
+<h3 id="6">6. 评估指标误导</h3>
+<ul>
+<li><strong>问题</strong>：FID/IS分数好但视觉质量差</li>
+<li><strong>原因</strong>：指标的局限性、分布不匹配</li>
+<li><strong>解决</strong>：使用多个指标、人工评估、任务特定指标</li>
+</ul>
+<h3 id="7">7. 过拟合</h3>
+<ul>
+<li><strong>问题</strong>：生成的形状过于接近训练集</li>
+<li><strong>原因</strong>：模型容量过大、训练数据少、正则化不足</li>
+<li><strong>解决</strong>：数据增强、dropout、早停、使用预训练模型</li>
+</ul>
+<h3 id="8">8. 采样速度慢</h3>
+<ul>
+<li><strong>问题</strong>：扩散模型需要数百步采样</li>
+<li><strong>原因</strong>：马尔可夫链的序列性质</li>
+<li><strong>解决</strong>：使用DDIM、DPM-Solver、知识蒸馏、并行采样</li>
+</ul>
+<h2 id="_6">最佳实践检查清单</h2>
+<h3 id="_7">数据准备</h3>
+<ul>
+<li>[ ] 数据归一化到 [-1, 1] 或 [0, 1]</li>
+<li>[ ] 检查并修复退化几何（自相交、非流形）</li>
+<li>[ ] 平衡数据集类别分布</li>
+<li>[ ] 预计算必要的特征（如SDF、曲率）</li>
+<li>[ ] 设置合理的训练/验证/测试分割</li>
+</ul>
+<h3 id="_8">模型设计</h3>
+<ul>
+<li>[ ] 选择适合任务的表示（体素/点云/网格/隐式）</li>
+<li>[ ] 考虑内存和计算约束</li>
+<li>[ ] 设计合适的网络容量</li>
+<li>[ ] 添加必要的归纳偏置（对称性、等变性）</li>
+<li>[ ] 实现条件机制（如需要）</li>
+</ul>
+<h3 id="_9">训练配置</h3>
+<ul>
+<li>[ ] 使用合适的优化器（Adam for GAN, AdamW for Transformer）</li>
+<li>[ ] 设置合理的学习率调度</li>
+<li>[ ] 实现梯度裁剪</li>
+<li>[ ] 监控训练指标（loss、梯度范数、生成样本）</li>
+<li>[ ] 定期保存检查点</li>
+</ul>
+<h3 id="_10">评估方法</h3>
+<ul>
+<li>[ ] 实现多个评估指标</li>
+<li>[ ] 可视化生成样本</li>
+<li>[ ] 测试插值和编辑能力</li>
+<li>[ ] 评估生成速度</li>
+<li>[ ] 检查失败案例</li>
+</ul>
+<h3 id="_11">部署考虑</h3>
+<ul>
+<li>[ ] 优化推理速度（量化、剪枝）</li>
+<li>[ ] 实现批处理</li>
+<li>[ ] 添加用户控制接口</li>
+<li>[ ] 处理边界情况</li>
+<li>[ ] 准备后处理流程</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter20.html" class="nav-link prev">← 第20章：神经程序合成</a><a href="./chapter22.html" class="nav-link next">第22章：形状分析与检索 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

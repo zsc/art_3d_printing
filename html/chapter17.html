@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第17章：可微渲染基础</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class=""><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class=""><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class=""><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class="active"><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class=""><a href="./chapter21.html">第21章：深度生成模型</a></li><li class=""><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class=""><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="17">第17章：可微渲染基础</h1>
+<h2 id="_1">本章概述</h2>
+<p>可微渲染是计算机图形学与机器学习的交叉前沿，通过使渲染过程可微分，实现了从2D图像反向推导3D几何、材质和光照的能力。本章深入探讨可微渲染的数学基础，包括渲染方程的可微形式、梯度计算策略、重参数化技巧，以及处理几何不连续性的边界积分方法。我们将从Monte Carlo积分的基本原理出发，逐步构建完整的可微渲染框架，为逆向渲染、神经渲染和3D重建等应用奠定理论基础。</p>
+<h2 id="_2">学习目标</h2>
+<ul>
+<li>掌握渲染方程的数学表述及其Monte Carlo求解方法</li>
+<li>理解可微渲染中的梯度计算挑战与解决方案</li>
+<li>掌握重参数化梯度估计和REINFORCE算法</li>
+<li>理解几何边界的可微处理方法</li>
+<li>熟悉主流可微光栅化框架的数学原理</li>
+</ul>
+<h2 id="171-monte-carlo">17.1 渲染方程与Monte Carlo积分</h2>
+<h3 id="1711">17.1.1 渲染方程的数学表述</h3>
+<p>渲染方程（Rendering Equation）由Kajiya于1986年提出，描述了光能在场景中的平衡：</p>
+<p>$$L_o(\mathbf{x}, \omega_o) = L_e(\mathbf{x}, \omega_o) + \int_{\Omega} f_r(\mathbf{x}, \omega_i, \omega_o) L_i(\mathbf{x}, \omega_i) (\omega_i \cdot \mathbf{n}) d\omega_i$$
+其中：</p>
+<ul>
+<li>$L_o(\mathbf{x}, \omega_o)$：点$\mathbf{x}$沿方向$\omega_o$的出射辐射度（radiance），单位：$W/(m^2 \cdot sr)$</li>
+<li>$L_e(\mathbf{x}, \omega_o)$：自发光项，描述表面的发射特性</li>
+<li>$f_r(\mathbf{x}, \omega_i, \omega_o)$：双向反射分布函数（BRDF），单位：$sr^{-1}$</li>
+<li>$L_i(\mathbf{x}, \omega_i)$：入射辐射度</li>
+<li>$\Omega$：半球立体角，$\Omega = 2\pi$</li>
+<li>$\mathbf{n}$：表面法向量</li>
+<li>$(\omega_i \cdot \mathbf{n})$：几何项，也写作$\cos\theta_i$</li>
+</ul>
+<p><strong>BRDF的性质</strong>：</p>
+<ol>
+<li>
+<p><strong>互易性（Helmholtz reciprocity）</strong>：
+$$f_r(\mathbf{x}, \omega_i, \omega_o) = f_r(\mathbf{x}, \omega_o, \omega_i)$$</p>
+</li>
+<li>
+<p><strong>能量守恒</strong>：
+$$\int_{\Omega} f_r(\mathbf{x}, \omega_i, \omega_o) \cos\theta_o d\omega_o \leq 1$$</p>
+</li>
+<li>
+<p><strong>非负性</strong>：
+$$f_r(\mathbf{x}, \omega_i, \omega_o) \geq 0$$
+<strong>光线追踪形式</strong>：</p>
+</li>
+</ol>
+<p>将入射辐射度$L_i$表示为来自其他表面的出射辐射度：
+$$L_i(\mathbf{x}, \omega_i) = L_o(\mathbf{h}(\mathbf{x}, \omega_i), -\omega_i)$$
+其中$\mathbf{h}(\mathbf{x}, \omega)$是射线投射函数，返回从$\mathbf{x}$沿$\omega$方向的第一个交点。</p>
+<p><strong>积分算子形式</strong>：</p>
+<p>定义线性算子$\mathcal{T}$：
+$$\mathcal{T}L(\mathbf{x}, \omega_o) = \int_{\Omega} f_r(\mathbf{x}, \omega_i, \omega_o) L(\mathbf{h}(\mathbf{x}, \omega_i), -\omega_i) \cos\theta_i d\omega_i$$
+渲染方程简化为：
+$$L = L_e + \mathcal{T}L$$
+形式解为：
+$$L = (\mathcal{I} - \mathcal{T})^{-1}L_e = \sum_{k=0}^{\infty} \mathcal{T}^k L_e$$</p>
+<h3 id="1712">17.1.2 递归展开与路径积分</h3>
+<p>渲染方程可递归展开为Neumann级数：
+$$L_o = L_e + TL_e + T^2L_e + T^3L_e + \cdots = \sum_{k=0}^{\infty} T^k L_e$$
+其中算子$T$定义为：
+$$Tf(\mathbf{x}, \omega) = \int_{\Omega} f_r(\mathbf{x}, \omega', \omega) f(\mathbf{h}(\mathbf{x}, \omega'), -\omega') |\omega' \cdot \mathbf{n}| d\omega'$$
+<strong>路径空间表述</strong>：</p>
+<p>定义路径空间$\mathcal{P} = \bigcup_{k=1}^{\infty} \mathcal{M}^k$，其中$\mathcal{M}$是场景表面的集合。</p>
+<p>一条长度为$k$的路径：
+$$\bar{\mathbf{x}} = (\mathbf{x}_0, \mathbf{x}_1, \ldots, \mathbf{x}_k)$$
+路径的贡献函数：
+$$f(\bar{\mathbf{x}}) = L_e(\mathbf{x}_k, \omega_{k,k-1}) \prod_{i=1}^{k} f_r(\mathbf{x}_i, \omega_{i,i+1}, \omega_{i,i-1}) G(\mathbf{x}_i, \mathbf{x}_{i-1})$$
+几何因子：
+$$G(\mathbf{x}, \mathbf{y}) = \frac{V(\mathbf{x}, \mathbf{y}) |\cos\theta_x| |\cos\theta_y|}{|\mathbf{x} - \mathbf{y}|^2}$$
+其中$V(\mathbf{x}, \mathbf{y})$是可见性函数。</p>
+<p><strong>测度理论视角</strong>：</p>
+<p>路径空间的测度：
+$$d\mu(\bar{\mathbf{x}}) = d\mathcal{A}(\mathbf{x}_0) \prod_{i=1}^{k} d\mathcal{A}(\mathbf{x}_i)$$
+其中$d\mathcal{A}$是表面面积测度。</p>
+<p>像素值的积分：
+$$I_j = \int_{\mathcal{A}_j} \int_{\mathcal{P}} W_e(\mathbf{x}_0) f(\bar{\mathbf{x}}) d\mu(\bar{\mathbf{x}}) d\mathcal{A}(\mathbf{x}_0)$$
+$W_e$是像素重建滤波器，$\mathcal{A}_j$是像素$j$对应的图像平面区域。</p>
+<p><strong>路径概率密度</strong>：</p>
+<p>路径采样的概率密度：
+$$p(\bar{\mathbf{x}}) = p(\mathbf{x}_0) \prod_{i=0}^{k-1} p(\mathbf{x}_{i+1}|\mathbf{x}_i)$$
+转移概率通常基于BRDF重要性采样：
+$$p(\mathbf{x}_{i+1}|\mathbf{x}_i) \propto f_r(\mathbf{x}_i, \omega_{i,i+1}, \omega_{i,i-1}) |\cos\theta_{i+1}|$$</p>
+<h3 id="1713-monte-carlo">17.1.3 Monte Carlo估计</h3>
+<p>对于路径积分，使用Monte Carlo方法估计：
+$$\hat{L}_o = \frac{1}{N} \sum_{i=1}^{N} \frac{f(\bar{\mathbf{x}}_i)}{p(\bar{\mathbf{x}}_i)}$$
+其中$p(\bar{\mathbf{x}})$是路径的概率密度函数。</p>
+<p><strong>估计器的性质</strong>：</p>
+<ol>
+<li>
+<p><strong>无偏性</strong>：
+$$\mathbb{E}[\hat{L}_o] = \mathbb{E}\left[\frac{f(\bar{\mathbf{x}})}{p(\bar{\mathbf{x}})}\right] = \int_{\mathcal{P}} \frac{f(\bar{\mathbf{x}})}{p(\bar{\mathbf{x}})} p(\bar{\mathbf{x}}) d\mu(\bar{\mathbf{x}}) = L_o$$</p>
+</li>
+<li>
+<p><strong>方差</strong>：
+$$\text{Var}[\hat{L}_o] = \frac{1}{N}\left(\int_{\mathcal{P}} \frac{f^2(\bar{\mathbf{x}})}{p(\bar{\mathbf{x}})} d\mu(\bar{\mathbf{x}}) - L_o^2\right)$$</p>
+</li>
+<li>
+<p><strong>均方误差（MSE）</strong>：
+$$\text{MSE}[\hat{L}_o] = \text{Var}[\hat{L}_o] + \text{Bias}^2[\hat{L}_o] = \frac{\text{Var}[f/p]}{N}$$
+<strong>重要性采样</strong>：选择合适的$p(\bar{\mathbf{x}})$以减小方差。</p>
+</li>
+</ol>
+<p>理想的重要性采样分布：
+$$p^*(\bar{\mathbf{x}}) = \frac{|f(\bar{\mathbf{x}})|}{\int_{\mathcal{P}} |f(\bar{\mathbf{x}})| d\mu(\bar{\mathbf{x}})}$$
+使用$p^*$时，方差为零（所有样本贡献相同）。</p>
+<p><strong>实用的重要性采样策略</strong>：</p>
+<ol>
+<li>
+<p><strong>BRDF采样</strong>：根据材质属性采样反射方向
+   - Lambert：$p(\omega) = \cos\theta/\pi$
+   - Phong：$p(\omega) \propto \cos^n\alpha$
+   - GGX：使用微表面分布采样</p>
+</li>
+<li>
+<p><strong>光源采样</strong>：直接采样光源表面
+   - 面光源：均匀采样或根据立体角
+   - 环境光：根据亮度分布采样</p>
+</li>
+<li>
+<p><strong>BSDF采样</strong>：结合反射和透射
+   - Fresnel权重选择反射或折射
+   - 分层采样不同波瓣</p>
+</li>
+</ol>
+<p><strong>方差减少技术</strong>：</p>
+<ol>
+<li>
+<p><strong>分层采样（Stratified Sampling）</strong>：
+   将采样域分成$M$个子域：
+$$\hat{L}_o = \frac{1}{M} \sum_{j=1}^{M} \frac{1}{n_j} \sum_{i=1}^{n_j} \frac{f(\bar{\mathbf{x}}_{ji})}{p(\bar{\mathbf{x}}_{ji}|S_j)}$$</p>
+</li>
+<li>
+<p><strong>拟蒙特卡洛（Quasi-Monte Carlo）</strong>：
+   使用低差异序列（Sobol、Halton）代替随机数</p>
+</li>
+<li>
+<p><strong>控制变量（Control Variates）</strong>：
+$$\hat{L}_o^{CV} = \hat{L}_o + c(\mathbb{E}[g] - \hat{g})$$
+其中$g$是已知期望的辅助函数</p>
+</li>
+</ol>
+<h3 id="1714">17.1.4 俄罗斯轮盘赌</h3>
+<p>为处理无限递归，引入俄罗斯轮盘赌终止策略：
+$$\hat{L}_o = \begin{cases}
+L_e + \frac{1}{p_{rr}} \int_{\Omega} f_r L_i (\omega_i \cdot \mathbf{n}) d\omega_i &amp; \text{概率 } p_{rr} \\
+L_e &amp; \text{概率 } 1-p_{rr}
+\end{cases}$$
+<strong>无偏性证明</strong>：
+$$\mathbb{E}[\hat{L}_o] = p_{rr} \cdot \left(L_e + \frac{1}{p_{rr}} \int_{\Omega} f_r L_i (\omega_i \cdot \mathbf{n}) d\omega_i\right) + (1-p_{rr}) \cdot L_e$$
+$$= L_e + \int_{\Omega} f_r L_i (\omega_i \cdot \mathbf{n}) d\omega_i = L_o$$
+<strong>终止概率的选择</strong>：</p>
+<ol>
+<li>
+<p><strong>固定概率</strong>：$p_{rr} = 0.95$（简单但可能低效）</p>
+</li>
+<li>
+<p><strong>自适应概率</strong>：基于路径贡献
+$$p_{rr} = \min\left(1, \frac{|f(\bar{\mathbf{x}}_k)|}{|f(\bar{\mathbf{x}}_0)|}\right)$$</p>
+</li>
+<li>
+<p><strong>基于深度的终止</strong>：
+$$p_{rr}(k) = \begin{cases}
+   1 &amp; k &lt; k_{min} \\
+   \alpha^{k-k_{min}} &amp; k \geq k_{min}
+   \end{cases}$$
+其中$k$是路径长度，$\alpha \in (0,1)$是衰减系数。</p>
+</li>
+</ol>
+<p><strong>效率分析</strong>：</p>
+<p>路径长度的期望：
+$$\mathbb{E}[k] = \sum_{i=0}^{\infty} i \cdot p_{rr}^i (1-p_{rr}) = \frac{p_{rr}}{1-p_{rr}}$$
+计算复杂度：$O(\mathbb{E}[k])$</p>
+<p><strong>分割俄罗斯轮盘赌（Splitting Russian Roulette）</strong>：</p>
+<p>在重要区域增加样本而非终止：
+$$\hat{L}_o = \begin{cases}
+n \cdot \frac{1}{n} \sum_{j=1}^{n} L_j &amp; \text{重要区域} \\
+\frac{1}{p_{rr}} L &amp; \text{非重要区域，概率 } p_{rr}
+\end{cases}$$</p>
+<h3 id="1715-mis">17.1.5 多重重要性采样（MIS）</h3>
+<p>当有多个采样策略时，使用多重重要性采样组合它们：
+$$\hat{L}_o = \sum_{i=1}^{n_f} \frac{w_f(\mathbf{x}_{f,i}) f(\mathbf{x}_{f,i})}{p_f(\mathbf{x}_{f,i})} + \sum_{j=1}^{n_g} \frac{w_g(\mathbf{x}_{g,j}) f(\mathbf{x}_{g,j})}{p_g(\mathbf{x}_{g,j})}$$
+<strong>平衡启发式（Balance Heuristic）</strong>：
+$$w_s(\mathbf{x}) = \frac{n_s p_s(\mathbf{x})}{\sum_k n_k p_k(\mathbf{x})}$$
+<strong>功率启发式（Power Heuristic）</strong>：
+$$w_s(\mathbf{x}) = \frac{(n_s p_s(\mathbf{x}))^\beta}{\sum_k (n_k p_k(\mathbf{x}))^\beta}$$
+常用$\beta = 2$，更好地处理高方差区域。</p>
+<p><strong>MIS的性质</strong>：</p>
+<ol>
+<li>
+<p><strong>无偏性</strong>：如果$\sum_s w_s(\mathbf{x}) = 1$，则估计器无偏</p>
+</li>
+<li>
+<p><strong>方差减少</strong>：MIS的方差不超过任何单一策略：
+$$\text{Var}[\hat{L}_{MIS}] \leq \min_s \text{Var}[\hat{L}_s]$$</p>
+</li>
+<li>
+<p><strong>最优性</strong>：平衡启发式在二阶近似下最优</p>
+</li>
+</ol>
+<p><strong>典型应用场景</strong>：</p>
+<ol>
+<li>
+<p><strong>直接光照</strong>：
+   - BRDF采样：处理高光反射
+   - 光源采样：处理大面光源</p>
+</li>
+<li>
+<p><strong>环境光照</strong>：
+   - BRDF采样：适合glossy材质
+   - 环境贴图采样：适合漫反射</p>
+</li>
+<li>
+<p><strong>双向路径追踪</strong>：
+   - 结合不同长度的光源和相机子路径</p>
+</li>
+</ol>
+<p><strong>实现细节</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">function</span><span class="w"> </span><span class="nf">DirectLighting</span><span class="p">(</span>x, wo<span class="p">):</span>
+<span class="w">    </span><span class="o">//</span><span class="w"> </span><span class="n">BRDF采样</span>
+<span class="w">    </span><span class="n">wi_brdf</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">SampleBRDF</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">wo</span><span class="p">)</span>
+<span class="w">    </span><span class="n">L_brdf</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">Li</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">wi_brdf</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">BRDF</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">wi_brdf</span><span class="p">,</span><span class="w"> </span><span class="n">wo</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">cos</span><span class="p">(</span><span class="n">wi_brdf</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">pdf_brdf</span><span class="p">(</span><span class="n">wi_brdf</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span>光源采样
+<span class="w">    </span><span class="n">y</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">SampleLight</span><span class="p">()</span>
+<span class="w">    </span><span class="n">wi_light</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">normalize</span><span class="p">(</span><span class="n">y</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">x</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">Visible</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">):</span>
+<span class="w">        </span><span class="n">L_light</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">Le</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">BRDF</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">wi_light</span><span class="p">,</span><span class="w"> </span><span class="n">wo</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">cos</span><span class="p">(</span><span class="n">wi_light</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">G</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">pdf_light</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span><span class="n">MIS组合</span>
+<span class="w">    </span><span class="n">w_brdf</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">PowerHeuristic</span><span class="p">(</span><span class="n">pdf_brdf</span><span class="p">,</span><span class="w"> </span><span class="n">pdf_light</span><span class="p">,</span><span class="w"> </span><span class="nb">beta</span><span class="p">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="w">    </span><span class="n">w_light</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">PowerHeuristic</span><span class="p">(</span><span class="n">pdf_light</span><span class="p">,</span><span class="w"> </span><span class="n">pdf_brdf</span><span class="p">,</span><span class="w"> </span><span class="nb">beta</span><span class="p">=</span><span class="mi">2</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">w_brdf</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">L_brdf</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">w_light</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">L_light</span>
+</code></pre></div>
+
+<h2 id="172-vs">17.2 梯度计算：有限差分vs自动微分</h2>
+<h3 id="1721">17.2.1 参数化渲染函数</h3>
+<p>考虑参数化的渲染过程：
+$$I(\theta) = \int_{\mathcal{P}} f(\bar{\mathbf{x}}; \theta) d\mu(\bar{\mathbf{x}})$$
+其中$\theta \in \mathbb{R}^n$可以是：</p>
+<ul>
+<li><strong>几何参数</strong>：顶点位置、法线、UV坐标</li>
+<li><strong>材质参数</strong>：反照率、粗糙度、折射率</li>
+<li><strong>光照参数</strong>：光源位置、强度、颜色</li>
+<li><strong>相机参数</strong>：视角、焦距、光圈</li>
+</ul>
+<p><strong>梯度的存在性</strong>：</p>
+<p>渲染函数$I(\theta)$在以下情况下不可微：</p>
+<ol>
+<li>可见性不连续（遮挡边界）</li>
+<li>材质不连续（纹理边界）</li>
+<li>光照不连续（阴影边界）</li>
+</ol>
+<p><strong>梯度的分解</strong>：</p>
+<p>使用Leibniz积分规则：
+$$\frac{\partial I}{\partial \theta} = \int_{\mathcal{P}} \frac{\partial f}{\partial \theta}(\bar{\mathbf{x}}; \theta) d\mu(\bar{\mathbf{x}}) + \int_{\partial \mathcal{P}} f(\bar{\mathbf{x}}; \theta) \frac{\partial \mathcal{P}}{\partial \theta} \cdot \mathbf{n} ds$$
+第一项：内部梯度（着色变化）<br />
+第二项：边界梯度（几何变化）</p>
+<h3 id="1722">17.2.2 有限差分方法</h3>
+<p><strong>前向差分</strong>：
+$$\nabla_{\theta} I \approx \frac{I(\theta + h) - I(\theta)}{h}$$
+<strong>中心差分</strong>（更精确）：
+$$\nabla_{\theta} I \approx \frac{I(\theta + h) - I(\theta - h)}{2h}$$
+<strong>Richardson外推</strong>（高阶精度）：
+$$\nabla_{\theta} I \approx \frac{4D(h/2) - D(h)}{3}$$
+其中$D(h) = \frac{I(\theta+h) - I(\theta-h)}{2h}$</p>
+<p><strong>误差分析</strong>：</p>
+<p>Taylor展开：
+$$I(\theta + h) = I(\theta) + h\nabla I(\theta) + \frac{h^2}{2}\nabla^2 I(\theta) + O(h^3)$$
+前向差分误差：
+$$E_{forward} = \frac{h}{2}\nabla^2 I(\theta) + O(h^2)$$
+中心差分误差：
+$$E_{center} = \frac{h^2}{6}\nabla^3 I(\theta) + O(h^4)$$
+<strong>最优步长选择</strong>：</p>
+<p>总误差 = 截断误差 + 舍入误差</p>
+<p>前向差分：
+$$E_{total} = Ch + \frac{\epsilon}{h}$$
+最小化：$h_{opt} = \sqrt{\epsilon/C} \approx \sqrt{\epsilon}$</p>
+<p>中心差分：
+$$E_{total} = Ch^2 + \frac{\epsilon}{h}$$
+最小化：$h_{opt} = (\epsilon/2C)^{1/3} \approx \epsilon^{1/3}$</p>
+<p><strong>复杂度分析</strong>：</p>
+<ul>
+<li>计算复杂度：$O(n)$次前向传播，$n$是参数维度</li>
+<li>内存复杂度：$O(1)$，不需要存储计算图</li>
+</ul>
+<p><strong>随机有限差分</strong>：</p>
+<p>为减少计算量，使用随机方向：
+$$\nabla_{\theta} I \approx \frac{I(\theta + h\mathbf{v}) - I(\theta - h\mathbf{v})}{2h} \cdot \mathbf{v}$$
+其中$\mathbf{v} \sim \mathcal{N}(0, I)$是随机方向。</p>
+<h3 id="1723">17.2.3 自动微分</h3>
+<p><strong>前向模式（Forward Mode AD）</strong>：</p>
+<p>使用对偶数（dual numbers）：
+$$x \rightarrow (x, \dot{x})$$
+计算规则：</p>
+<ul>
+<li>加法：$(a, \dot{a}) + (b, \dot{b}) = (a+b, \dot{a}+\dot{b})$</li>
+<li>乘法：$(a, \dot{a}) \times (b, \dot{b}) = (ab, a\dot{b} + b\dot{a})$</li>
+<li>链式法则：$\dot{y} = \frac{\partial f}{\partial x} \dot{x}$</li>
+</ul>
+<p>复杂度：$O(n)$次前向传播，其中$n$是输入维度。</p>
+<p><strong>反向模式（Reverse Mode AD）</strong>：</p>
+<p>构建计算图并反向传播：</p>
+<ol>
+<li>
+<p><strong>前向传播</strong>：计算并记录中间值
+$$v_i = f_i(v_{j&lt;i})$$</p>
+</li>
+<li>
+<p><strong>反向传播</strong>：计算伴随变量
+$$\bar{v}_j = \sum_{i: j \in \text{parents}(i)} \bar{v}_i \frac{\partial v_i}{\partial v_j}$$
+复杂度：$O(m)$次反向传播，其中$m$是输出维度。</p>
+</li>
+</ol>
+<p><strong>混合模式</strong>：</p>
+<p>对于Hessian计算：
+$$H_{ij} = \frac{\partial^2 f}{\partial x_i \partial x_j}$$
+使用forward-over-reverse：</p>
+<ol>
+<li>反向模式计算梯度</li>
+<li>前向模式对梯度求导</li>
+</ol>
+<p><strong>梯度检查点（Gradient Checkpointing）</strong>：</p>
+<p>为减少内存使用：</p>
+<ol>
+<li>仅存储部分中间结果（检查点）</li>
+<li>反向传播时重新计算其他中间值</li>
+</ol>
+<p>时空权衡：</p>
+<ul>
+<li>内存：$O(\sqrt{n})$而非$O(n)$</li>
+<li>计算：增加约33%</li>
+</ul>
+<h3 id="1724">17.2.4 可微渲染的挑战</h3>
+<ol>
+<li><strong>可见性不连续</strong></li>
+</ol>
+<p>问题：当$\theta$变化时，可见性函数$V(\mathbf{x}, \mathbf{y}; \theta)$不连续。</p>
+<p>数学表述：
+$$V(\mathbf{x}, \mathbf{y}; \theta) = \begin{cases}
+1 &amp; \text{if no occlusion} \\
+0 &amp; \text{if occluded}
+\end{cases}$$
+梯度包含Dirac delta：
+$$\frac{\partial V}{\partial \theta} = \delta(\text{boundary}) \cdot \text{normal_velocity}$$</p>
+<ol start="2">
+<li><strong>采样相关性</strong></li>
+</ol>
+<p>问题：Monte Carlo采样引入高方差。</p>
+<p>方差与采样数的关系：
+$$\text{Var}[\nabla I] = \frac{\sigma^2}{N}$$
+偏差-方差权衡：</p>
+<ul>
+<li>增加采样：减少方差，增加计算</li>
+<li>软化边界：减少方差，引入偏差</li>
+</ul>
+<ol start="3">
+<li><strong>内存需求</strong></li>
+</ol>
+<p>反向模式AD需要存储：</p>
+<ul>
+<li>所有中间变量</li>
+<li>计算图结构</li>
+</ul>
+<p>内存复杂度：$O(\text{path_length} \times \text{resolution})$</p>
+<p>解决方案：</p>
+<ul>
+<li>梯度检查点</li>
+<li>局部反向传播</li>
+<li>混合精度计算</li>
+</ul>
+<ol start="4">
+<li><strong>数值稳定性</strong></li>
+</ol>
+<p>问题：梯度爆炸或消失。</p>
+<p>解决方案：</p>
+<ul>
+<li>梯度裁剪：$\nabla = \text{clip}(\nabla, -c, c)$</li>
+<li>梯度归一化：$\nabla = \nabla / |\nabla|$</li>
+<li>自适应学习率</li>
+</ul>
+<h3 id="1725">17.2.5 梯度估计的偏差与方差</h3>
+<p><strong>偏差来源</strong>：</p>
+<p>对于Monte Carlo估计：
+$$I(\theta) = \mathbb{E}_{p(\mathbf{x};\theta)}[f(\mathbf{x};\theta)]$$
+直接求导（错误！）：
+$$\nabla_{\theta} I \stackrel{?}{=} \mathbb{E}_{p(\mathbf{x};\theta)}[\nabla_{\theta} f(\mathbf{x};\theta)]$$
+正确的梯度：
+$$\nabla_{\theta} I = \mathbb{E}_{p}[\nabla_{\theta} f] + \mathbb{E}_{p}[f \nabla_{\theta} \log p]$$
+第二项经常被忽略，导致偏差。</p>
+<p><strong>方差分析</strong>：</p>
+<p>梯度估计器的方差：
+$$\text{Var}[\nabla_{\theta} \hat{I}] = \frac{1}{N} \text{Var}_{p}[\nabla_{\theta} (f/p)]$$
+展开：
+$$\text{Var}[\nabla_{\theta} \hat{I}] = \frac{1}{N} \left(\mathbb{E}_{p}\left[\left|\nabla_{\theta} \frac{f}{p}\right|^2\right] - \left|\nabla_{\theta} I\right|^2\right)$$
+<strong>信噪比（SNR）</strong>：
+$$\text{SNR} = \frac{|\nabla_{\theta} I|}{\sqrt{\text{Var}[\nabla_{\theta} \hat{I}]}} = \sqrt{N} \cdot \frac{|\nabla_{\theta} I|}{\sigma_{\nabla}}$$
+要达到目标SNR，需要采样数：
+$$N = \left(\frac{\sigma_{\nabla}}{|\nabla_{\theta} I|} \cdot \text{SNR}_{target}\right)^2$$
+<strong>控制偏差的方法</strong>：</p>
+<ol>
+<li>
+<p><strong>重参数化</strong>：消除采样分布对$\theta$的依赖</p>
+</li>
+<li>
+<p><strong>似然比方法</strong>：显式计算$\nabla_{\theta} \log p$</p>
+</li>
+<li>
+<p><strong>双重采样</strong>：
+$$\nabla_{\theta} I \approx \frac{1}{N} \sum_{i=1}^{N} \left(\nabla_{\theta} f(\mathbf{x}_i;\theta) + f(\mathbf{x}_i;\theta) \nabla_{\theta} \log p(\mathbf{x}_i;\theta)\right)$$</p>
+</li>
+</ol>
+<h2 id="173-reinforce">17.3 重参数化技巧与REINFORCE</h2>
+<h3 id="1731">17.3.1 重参数化梯度</h3>
+<p><strong>基本思想</strong>：</p>
+<p>将随机性从参数中分离：
+$$\mathbf{z} \sim p(\mathbf{z}; \theta) \Rightarrow \mathbf{z} = g(\epsilon; \theta), \quad \epsilon \sim p(\epsilon)$$
+其中$p(\epsilon)$不依赖于$\theta$。</p>
+<p><strong>梯度计算</strong>：</p>
+<p>原始期望：
+$$I(\theta) = \mathbb{E}_{p(\mathbf{z};\theta)}[f(\mathbf{z})]$$
+重参数化后：
+$$I(\theta) = \mathbb{E}_{p(\epsilon)}[f(g(\epsilon; \theta))]$$
+梯度：
+$$\nabla_{\theta} I = \mathbb{E}_{p(\epsilon)}[\nabla_{\theta} f(g(\epsilon; \theta))]$$
+展开链式法则：
+$$\nabla_{\theta} I = \mathbb{E}_{p(\epsilon)}\left[\frac{\partial f}{\partial \mathbf{z}}\bigg|_{\mathbf{z}=g(\epsilon;\theta)} \cdot \frac{\partial g}{\partial \theta}(\epsilon; \theta)\right]$$
+<strong>优点</strong>：</p>
+<ol>
+<li>无偏估计</li>
+<li>低方差（相比REINFORCE）</li>
+<li>可使用自动微分</li>
+</ol>
+<p><strong>局限性</strong>：</p>
+<ol>
+<li>需要显式的重参数化公式</li>
+<li>不适用于离散分布</li>
+<li>不适用于复杂分布</li>
+</ol>
+<h3 id="1732">17.3.2 常见分布的重参数化</h3>
+<p><strong>正态分布</strong>：
+$$\mathbf{z} \sim \mathcal{N}(\mu, \sigma^2)$$
+重参数化：
+$$\mathbf{z} = \mu + \sigma \epsilon, \quad \epsilon \sim \mathcal{N}(0, 1)$$
+梯度：
+$$\frac{\partial \mathbf{z}}{\partial \mu} = 1, \quad \frac{\partial \mathbf{z}}{\partial \sigma} = \epsilon$$
+<strong>均匀分布</strong>：
+$$\mathbf{z} \sim \mathcal{U}(a, b)$$
+重参数化：
+$$\mathbf{z} = a + (b-a)\epsilon, \quad \epsilon \sim \mathcal{U}(0, 1)$$
+梯度：
+$$\frac{\partial \mathbf{z}}{\partial a} = 1 - \epsilon, \quad \frac{\partial \mathbf{z}}{\partial b} = \epsilon$$
+<strong>指数分布</strong>：
+$$\mathbf{z} \sim \text{Exp}(\lambda)$$
+重参数化：
+$$\mathbf{z} = -\frac{\log(1-\epsilon)}{\lambda}, \quad \epsilon \sim \mathcal{U}(0, 1)$$
+<strong>Beta分布</strong>：
+$$\mathbf{z} \sim \text{Beta}(\alpha, \beta)$$
+使用Kumaraswamy近似：
+$$\mathbf{z} = (1-(1-\epsilon)^{1/\beta})^{1/\alpha}, \quad \epsilon \sim \mathcal{U}(0, 1)$$
+<strong>Gumbel-Softmax</strong>（离散分布的连续松弛）：</p>
+<p>离散分布：$\mathbf{z} \sim \text{Categorical}(\pi)$</p>
+<p>连续松弛：
+$$\mathbf{z}_i = \frac{\exp((\log \pi_i + g_i)/\tau)}{\sum_j \exp((\log \pi_j + g_j)/\tau)}$$
+其中：</p>
+<ul>
+<li>$g_i = -\log(-\log(\epsilon_i))$，$\epsilon_i \sim \mathcal{U}(0, 1)$</li>
+<li>$\tau$是温度参数：$\tau \to 0$时趋近one-hot</li>
+</ul>
+<p>梯度：
+$$\frac{\partial \mathbf{z}_i}{\partial \log \pi_j} = \frac{1}{\tau}(\mathbf{z}_i(\delta_{ij} - \mathbf{z}_j))$$</p>
+<h3 id="1733-reinforce">17.3.3 REINFORCE算法</h3>
+<p><strong>似然比梯度定理</strong>：</p>
+<p>对于不可重参数化的分布：
+$$\nabla_{\theta} \mathbb{E}_{p(\mathbf{z};\theta)}[f(\mathbf{z})] = \mathbb{E}_{p(\mathbf{z};\theta)}[f(\mathbf{z}) \nabla_{\theta} \log p(\mathbf{z}; \theta)]$$
+<strong>推导</strong>：
+$$\nabla_{\theta} \mathbb{E}_{p}[f] = \nabla_{\theta} \int f(\mathbf{z}) p(\mathbf{z};\theta) d\mathbf{z}$$
+$$= \int f(\mathbf{z}) \nabla_{\theta} p(\mathbf{z};\theta) d\mathbf{z}$$
+$$= \int f(\mathbf{z}) p(\mathbf{z};\theta) \frac{\nabla_{\theta} p(\mathbf{z};\theta)}{p(\mathbf{z};\theta)} d\mathbf{z}$$
+$$= \mathbb{E}_{p}[f(\mathbf{z}) \nabla_{\theta} \log p(\mathbf{z}; \theta)]$$
+<strong>带基线的REINFORCE</strong>：</p>
+<p>为减小方差，引入基线$b$：
+$$\nabla_{\theta} J = \mathbb{E}_{p}[(f(\mathbf{z}) - b) \nabla_{\theta} \log p(\mathbf{z}; \theta)]$$
+基线不影响无偏性：
+$$\mathbb{E}_{p}[b \cdot \nabla_{\theta} \log p] = b \cdot \nabla_{\theta} \mathbb{E}_{p}[1] = 0$$
+<strong>最优基线</strong>：</p>
+<p>最小化方差：
+$$b^* = \arg\min_b \text{Var}[(f - b) \nabla_{\theta} \log p]$$
+解：
+$$b^* = \frac{\mathbb{E}[f(\mathbf{z}) |\nabla_{\theta} \log p(\mathbf{z}; \theta)|^2]}{\mathbb{E}[|\nabla_{\theta} \log p(\mathbf{z}; \theta)|^2]}$$
+<strong>实用的基线选择</strong>：</p>
+<ol>
+<li>
+<p><strong>移动平均</strong>：
+$$b_t = \alpha b_{t-1} + (1-\alpha) f(\mathbf{z}_t)$$</p>
+</li>
+<li>
+<p><strong>神经网络基线</strong>：
+$$b = V_{\phi}(\mathbf{s})$$
+其中$V_{\phi}$是值函数近似器</p>
+</li>
+<li>
+<p><strong>自平均基线</strong>：
+$$b = \frac{1}{N-1}\sum_{j \neq i} f(\mathbf{z}_j)$$</p>
+</li>
+</ol>
+<h3 id="1734">17.3.4 控制变量方法</h3>
+<p><strong>基本思想</strong>：</p>
+<p>将函数分解为可微和不可微部分：
+$$f(\mathbf{z}; \theta) = f_{diff}(\mathbf{z}; \theta) + f_{disc}(\mathbf{z}; \theta)$$
+梯度估计：
+$$\nabla_{\theta} J = \underbrace{\mathbb{E}[\nabla_{\theta} f_{diff}]}_{\text{重参数化}} + \underbrace{\mathbb{E}[(f_{disc} - c) \nabla_{\theta} \log p]}_{\text{REINFORCE}}$$
+<strong>控制变量的选择</strong>：</p>
+<p>理想的控制变量应该：</p>
+<ol>
+<li>与$f_{disc}$高度相关</li>
+<li>可微分</li>
+<li>计算高效</li>
+</ol>
+<p>常用选择：</p>
+<ul>
+<li>$c(\mathbf{z}) = f_{diff}(\mathbf{z}; \theta_{old})$</li>
+<li>$c(\mathbf{z}) = \mathbb{E}[f_{disc}|\mathbf{z}_{diff}]$</li>
+</ul>
+<p><strong>Rao-Blackwellization</strong>：</p>
+<p>利用条件期望减少方差：
+$$\text{Var}[\mathbb{E}[X|Y]] \leq \text{Var}[X]$$
+应用：
+$$c^*(\mathbf{z}) = \mathbb{E}[f_{disc}|\mathbf{z}_{observable}]$$
+<strong>实例：可微渲染中的应用</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">function</span><span class="w"> </span><span class="nf">DifferentiableRender</span><span class="p">(</span>scene, theta<span class="p">):</span>
+<span class="w">    </span><span class="o">//</span><span class="w"> </span>可微部分：着色
+<span class="w">    </span><span class="nb">shading</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">ComputeShading</span><span class="p">(</span><span class="n">scene</span><span class="p">,</span><span class="w"> </span><span class="n">theta</span><span class="p">)</span>
+<span class="w">    </span><span class="n">grad_shading</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">AutoDiff</span><span class="p">(</span><span class="nb">shading</span><span class="p">,</span><span class="w"> </span><span class="n">theta</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span>不可微部分：可见性
+<span class="w">    </span><span class="n">visibility</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">ComputeVisibility</span><span class="p">(</span><span class="n">scene</span><span class="p">,</span><span class="w"> </span><span class="n">theta</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span>控制变量：软可见性
+<span class="w">    </span><span class="n">soft_visibility</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">SoftVisibility</span><span class="p">(</span><span class="n">scene</span><span class="p">,</span><span class="w"> </span><span class="n">theta</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span>组合梯度
+<span class="w">    </span><span class="n">grad_total</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">grad_shading</span><span class="w"> </span><span class="o">+</span><span class="w"> </span>
+<span class="w">                 </span><span class="p">(</span><span class="n">visibility</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">soft_visibility</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">ScoreFunction</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">grad_total</span>
+</code></pre></div>
+
+<h2 id="174">17.4 边界采样与轮廓积分</h2>
+<h3 id="1741">17.4.1 可见性的数学表述</h3>
+<p><strong>可见性函数</strong>：
+$$V(\mathbf{x}, \mathbf{y}) = \begin{cases}
+1 &amp; \text{if } \mathbf{x} \text{ and } \mathbf{y} \text{ are mutually visible} \\
+0 &amp; \text{otherwise}
+\end{cases}$$
+<strong>射线表示</strong>：
+$$V(\mathbf{x}, \mathbf{y}) = \prod_{t \in [0,1]} \mathbb{1}[\text{no intersection at } \mathbf{x} + t(\mathbf{y} - \mathbf{x})]$$
+<strong>分布意义下的梯度</strong>：</p>
+<p>可见性函数在边界处不连续，梯度包含Dirac delta：
+$$\frac{\partial V}{\partial \theta} = \delta(d(\theta)) \cdot \frac{\partial d}{\partial \theta}$$
+其中$d(\theta) = 0$定义了遮挡边界。</p>
+<p><strong>边界的参数化</strong>：</p>
+<p>边界曲线：$\gamma(s; \theta)$，$s \in [0, L]$</p>
+<p>边界速度：
+$$\mathbf{v}(s) = \frac{\partial \gamma}{\partial \theta}(s; \theta)$$
+边界法向：
+$$\mathbf{n}(s) = \frac{\gamma'(s) \times \mathbf{e}_z}{|\gamma'(s) \times \mathbf{e}_z|}$$</p>
+<h3 id="1742">17.4.2 边界积分公式</h3>
+<p><strong>Reynolds Transport定理</strong>：</p>
+<p>对于随参数变化的域$\Omega(\theta)$：
+$$\frac{d}{d\theta} \int_{\Omega(\theta)} f(\mathbf{x}; \theta) d\mathbf{x} = \int_{\Omega(\theta)} \frac{\partial f}{\partial \theta} d\mathbf{x} + \int_{\partial \Omega(\theta)} f(\mathbf{x}; \theta) (\mathbf{v} \cdot \mathbf{n}) ds$$
+物理意义：</p>
+<ul>
+<li>第一项：内部变化（函数值的变化）</li>
+<li>第二项：边界移动的贡献</li>
+</ul>
+<p><strong>应用于渲染</strong>：</p>
+<p>像素值：
+$$I(\theta) = \int_{\Omega_{visible}(\theta)} L(\mathbf{x}; \theta) d\mathbf{x}$$
+梯度：
+$$\frac{dI}{d\theta} = \int_{\Omega} \frac{\partial L}{\partial \theta} d\mathbf{x} + \int_{\partial \Omega} L (\mathbf{v} \cdot \mathbf{n}) ds$$
+<strong>边界速度的计算</strong>：</p>
+<p>对于三角形边缘：
+$$\mathbf{v} = \frac{\partial \mathbf{p}_{edge}}{\partial \theta}$$
+对于遮挡边界：
+$$\mathbf{v} = \frac{\partial \mathbf{p}_{occluder}}{\partial \theta} - \frac{\partial \mathbf{p}_{occluded}}{\partial \theta}$$</p>
+<h3 id="1743">17.4.3 轮廓积分的离散化</h3>
+<p>将轮廓离散为线段：
+$$\nabla_{\theta} I = \sum_{e \in \text{edges}} \int_{e} f(\mathbf{x}) \frac{\partial \mathbf{x}}{\partial \theta} \cdot \mathbf{n}_e ds$$
+使用Gauss-Legendre求积：
+$$\int_{e} f(\mathbf{x}) ds \approx \sum_{i=1}^{n} w_i f(\mathbf{x}_i) |e|$$</p>
+<h3 id="1744">17.4.4 边界采样策略</h3>
+<p><strong>均匀采样</strong>：
+$$p(\mathbf{x}) = \frac{1}{|\partial \Omega|}$$
+<strong>重要性采样</strong>（基于辐射度）：
+$$p(\mathbf{x}) \propto |f(\mathbf{x})|$$
+<strong>分层采样</strong>：将边界分成$k$段，每段采样$n/k$个点。</p>
+<h3 id="1745">17.4.5 软边界近似</h3>
+<p>使用sigmoid函数软化边界：
+$$V_{soft}(\mathbf{x}, \mathbf{y}) = \sigma\left(\frac{d(\mathbf{x}, \mathbf{y})}{\epsilon}\right)$$
+其中$d(\mathbf{x}, \mathbf{y})$是到遮挡边界的有符号距离，$\epsilon$控制软化程度。</p>
+<h2 id="175-softrasdib-r">17.5 可微光栅化：SoftRas、DIB-R</h2>
+<h3 id="1751">17.5.1 传统光栅化的不可微性</h3>
+<p>传统光栅化的深度测试：
+$$z_{buffer}[i,j] = \min_{t \in \text{triangles}} z_t(i,j)$$
+$\min$操作导致梯度几乎处处为零。</p>
+<h3 id="1752-softras">17.5.2 SoftRas方法</h3>
+<p><strong>软光栅化函数</strong>：
+$$C_{ij} = \frac{\sum_{t} w_{ijt} c_t}{\sum_{t} w_{ijt}}$$
+其中权重函数：
+$$w_{ijt} = \sigma(d_{ijt}/\gamma) \cdot \exp(-z_{ijt}^2/2\sigma_z^2)$$</p>
+<ul>
+<li>$d_{ijt}$：像素$(i,j)$到三角形$t$的有符号距离</li>
+<li>$\gamma$：控制边界模糊程度</li>
+<li>$\sigma_z$：深度方向的标准差</li>
+</ul>
+<p><strong>概率解释</strong>：每个三角形对像素的贡献是其可见概率。</p>
+<h3 id="1753-dib-rdifferentiable-interpolation-based-renderer">17.5.3 DIB-R（Differentiable Interpolation-Based Renderer）</h3>
+<p><strong>前景/背景分解</strong>：
+$$C_{ij} = \alpha_{ij} C_{fg} + (1-\alpha_{ij}) C_{bg}$$
+其中$\alpha_{ij}$是软前景掩码：
+$$\alpha_{ij} = 1 - \prod_{t} (1 - \alpha_{ijt})$$
+单个三角形的贡献：
+$$\alpha_{ijt} = \text{softmax}(-d_{ijt}/\tau) \cdot \mathbb{1}[z_{ijt} &lt; z_{max}]$$</p>
+<h3 id="1754">17.5.4 梯度计算与反向传播</h3>
+<p><strong>对顶点位置的梯度</strong>：
+$$\frac{\partial \mathcal{L}}{\partial \mathbf{v}} = \sum_{i,j} \frac{\partial \mathcal{L}}{\partial C_{ij}} \frac{\partial C_{ij}}{\partial \mathbf{v}}$$
+其中：
+$$\frac{\partial C_{ij}}{\partial \mathbf{v}} = \sum_{t \ni \mathbf{v}} \frac{\partial C_{ij}}{\partial w_{ijt}} \frac{\partial w_{ijt}}{\partial d_{ijt}} \frac{\partial d_{ijt}}{\partial \mathbf{v}}$$
+<strong>有符号距离的梯度</strong>：
+$$\frac{\partial d_{ijt}}{\partial \mathbf{v}_k} = \frac{(\mathbf{p}_{ij} - \mathbf{v}_k) \cdot \mathbf{n}_t}{|\mathbf{n}_t|}$$</p>
+<h3 id="1755">17.5.5 性能优化</h3>
+<p><strong>层次化光栅化</strong>：</p>
+<ol>
+<li>粗光栅化：确定三角形覆盖的像素块</li>
+<li>细光栅化：仅处理相关像素</li>
+</ol>
+<p><strong>早期剔除</strong>：</p>
+<ul>
+<li>视锥剔除：$\mathbf{v} \cdot \mathbf{n}_{frustum} &gt; 0$</li>
+<li>背面剔除：$(\mathbf{v}_1 - \mathbf{v}_0) \times (\mathbf{v}_2 - \mathbf{v}_0) \cdot \mathbf{view} &lt; 0$</li>
+</ul>
+<p><strong>梯度累积优化</strong>：使用原子操作避免竞争条件。</p>
+<h2 id="_3">本章小结</h2>
+<p>本章系统介绍了可微渲染的数学基础：</p>
+<ol>
+<li>
+<p><strong>渲染方程与Monte Carlo积分</strong>：建立了光传输的数学模型，通过Monte Carlo方法实现数值求解，重要性采样和多重重要性采样技术降低方差。</p>
+</li>
+<li>
+<p><strong>梯度计算策略</strong>：比较了有限差分和自动微分方法，分析了各自的优缺点和适用场景。</p>
+</li>
+<li>
+<p><strong>重参数化与REINFORCE</strong>：解决了随机采样的可微性问题，重参数化适用于连续分布，REINFORCE处理离散和不可重参数化情况。</p>
+</li>
+<li>
+<p><strong>边界积分理论</strong>：通过Reynolds transport定理处理几何不连续性，轮廓积分提供了精确的梯度计算。</p>
+</li>
+<li>
+<p><strong>可微光栅化框架</strong>：SoftRas和DIB-R通过软化深度测试和边界，实现了端到端可微的光栅化。</p>
+</li>
+</ol>
+<p>关键公式：</p>
+<ul>
+<li>渲染方程：$L_o = L_e + \int_{\Omega} f_r L_i (\omega_i \cdot \mathbf{n}) d\omega_i$</li>
+<li>重参数化梯度：$\nabla_{\theta} \mathbb{E}[f] = \mathbb{E}[\nabla_{\theta} f(g(\epsilon; \theta))]$</li>
+<li>REINFORCE：$\nabla_{\theta} J = \mathbb{E}[f(\mathbf{z}) \nabla_{\theta} \log p(\mathbf{z}; \theta)]$</li>
+<li>边界积分：$\frac{d}{d\theta} \int_{\Omega} f = \int_{\Omega} \frac{\partial f}{\partial \theta} + \int_{\partial \Omega} f (\mathbf{v} \cdot \mathbf{n})$</li>
+</ul>
+<h2 id="_4">练习题</h2>
+<h3 id="_5">基础题</h3>
+<p><strong>练习17.1</strong> 推导渲染方程的Neumann级数展开，并解释每一项的物理意义。</p>
+<p><em>提示</em>：考虑光线弹射次数与能量衰减的关系。</p>
+<details>
+<summary>答案</summary>
+<p>渲染方程：$L = L_e + TL$</p>
+<p>迭代展开：</p>
+<ul>
+<li>$L^{(0)} = L_e$（直接光照）</li>
+<li>$L^{(1)} = L_e + TL_e$（一次弹射）</li>
+<li>$L^{(2)} = L_e + TL_e + T^2L_e$（二次弹射）</li>
+<li>$L = \sum_{k=0}^{\infty} T^k L_e$</li>
+</ul>
+<p>物理意义：$T^k L_e$表示经过$k$次反射/折射后的光照贡献。由于能量守恒，$|T| &lt; 1$，级数收敛。</p>
+</details>
+<p><strong>练习17.2</strong> 证明使用重要性采样时，当采样分布$p(x) \propto |f(x)|$时，Monte Carlo估计的方差最小。</p>
+<p><em>提示</em>：使用方差定义$\text{Var}[X] = \mathbb{E}[X^2] - (\mathbb{E}[X])^2$。</p>
+<details>
+<summary>答案</summary>
+<p>Monte Carlo估计：$\hat{I} = \frac{1}{N}\sum_{i=1}^{N} \frac{f(x_i)}{p(x_i)}$</p>
+<p>方差：
+$$\text{Var}[\hat{I}] = \frac{1}{N}\left(\int \frac{f^2(x)}{p(x)}dx - I^2\right)$$
+最小化$\int \frac{f^2(x)}{p(x)}dx$，使用Cauchy-Schwarz不等式：
+$$\int \frac{f^2(x)}{p(x)}dx \cdot \int p(x)dx \geq \left(\int |f(x)|dx\right)^2$$
+等号成立条件：$p(x) \propto |f(x)|$</p>
+<p>归一化：$p^*(x) = \frac{|f(x)|}{\int |f(x)|dx}$</p>
+</details>
+<p><strong>练习17.3</strong> 推导正态分布$\mathcal{N}(\mu, \sigma^2)$的重参数化形式，并计算关于$\mu$和$\sigma$的梯度。</p>
+<p><em>提示</em>：使用标准正态分布的性质。</p>
+<details>
+<summary>答案</summary>
+<p>重参数化：$z = \mu + \sigma \epsilon$，其中$\epsilon \sim \mathcal{N}(0, 1)$</p>
+<p>对于函数$f(z)$的期望：
+$$\mathbb{E}_{z \sim \mathcal{N}(\mu, \sigma^2)}[f(z)] = \mathbb{E}_{\epsilon \sim \mathcal{N}(0,1)}[f(\mu + \sigma \epsilon)]$$
+梯度：
+$$\frac{\partial}{\partial \mu} \mathbb{E}[f(z)] = \mathbb{E}\left[\frac{\partial f}{\partial z}(\mu + \sigma \epsilon)\right]$$</p>
+<p>$$\frac{\partial}{\partial \sigma} \mathbb{E}[f(z)] = \mathbb{E}\left[\epsilon \frac{\partial f}{\partial z}(\mu + \sigma \epsilon)\right]$$</p>
+</details>
+<h3 id="_6">挑战题</h3>
+<p><strong>练习17.4</strong> 设计一个结合重参数化和REINFORCE的混合梯度估计器，用于处理部分可微的渲染函数。分析其偏差和方差特性。</p>
+<p><em>提示</em>：考虑控制变量方法和Rao-Blackwellization。</p>
+<details>
+<summary>答案</summary>
+<p>混合估计器：
+$$\nabla_{\theta} J = \nabla_{\theta} \mathbb{E}[f_{diff}(\mathbf{z}; \theta)] + \mathbb{E}[(f_{disc}(\mathbf{z}) - c(\mathbf{z})) \nabla_{\theta} \log p(\mathbf{z}; \theta)]$$
+其中：</p>
+<ul>
+<li>$f = f_{diff} + f_{disc}$</li>
+<li>$f_{diff}$：可微部分（使用重参数化）</li>
+<li>$f_{disc}$：不连续部分（使用REINFORCE）</li>
+<li>$c(\mathbf{z})$：控制变量</li>
+</ul>
+<p>最优控制变量（最小化方差）：
+$$c^*(\mathbf{z}) = \mathbb{E}[f_{disc}|\mathbf{z}_{diff}]$$
+偏差分析：估计器无偏，因为两部分都是无偏估计。</p>
+<p>方差分析：
+$$\text{Var}[\nabla] = \text{Var}[\nabla f_{diff}] + \text{Var}[(f_{disc} - c) \nabla \log p]$$
+使用控制变量降低第二项方差。</p>
+</details>
+<p><strong>练习17.5</strong> 推导软光栅化中有符号距离函数对三角形顶点的梯度，考虑三角形退化的情况。</p>
+<p><em>提示</em>：使用重心坐标和点到平面的距离公式。</p>
+<details>
+<summary>答案</summary>
+<p>点$\mathbf{p}$到三角形的有符号距离：</p>
+<ol>
+<li>
+<p>投影到三角形平面：
+$$\mathbf{p}_{proj} = \mathbf{p} - ((\mathbf{p} - \mathbf{v}_0) \cdot \mathbf{n})\mathbf{n}$$</p>
+</li>
+<li>
+<p>检查重心坐标：
+$$(\lambda_0, \lambda_1, \lambda_2) = \text{barycentric}(\mathbf{p}_{proj})$$</p>
+</li>
+<li>
+<p>距离计算：
+- 内部：$d = (\mathbf{p} - \mathbf{v}_0) \cdot \mathbf{n}$
+- 边缘：$d = \min_{e} \text{dist}(\mathbf{p}, e)$
+- 顶点：$d = \min_{v} |\mathbf{p} - \mathbf{v}|$</p>
+</li>
+</ol>
+<p>梯度（内部情况）：
+$$\frac{\partial d}{\partial \mathbf{v}_0} = -\mathbf{n} + \frac{\partial \mathbf{n}}{\partial \mathbf{v}_0} \cdot (\mathbf{p} - \mathbf{v}_0)$$
+其中：
+$$\frac{\partial \mathbf{n}}{\partial \mathbf{v}_0} = \frac{1}{|\mathbf{e}_1 \times \mathbf{e}_2|}(I - \mathbf{n}\mathbf{n}^T)(\mathbf{e}_2 \times - \mathbf{e}_1 \times)$$
+退化处理：当$|\mathbf{e}_1 \times \mathbf{e}_2| &lt; \epsilon$时，使用数值稳定的替代公式。</p>
+</details>
+<p><strong>练习17.6</strong> 分析多重重要性采样（MIS）在双向路径追踪中的应用，推导最优权重函数。</p>
+<p><em>提示</em>：考虑平衡启发式和功率启发式。</p>
+<details>
+<summary>答案</summary>
+<p>双向路径追踪的MIS：</p>
+<p>路径贡献：
+$$C = \sum_{s=0}^{k} C_{s,t}$$
+其中$C_{s,t}$是$s$个光源子路径顶点和$t$个相机子路径顶点的贡献。</p>
+<p>MIS权重（平衡启发式）：
+$$w_{s,t}(\mathbf{x}) = \frac{p_{s,t}(\mathbf{x})}{\sum_{s',t'} p_{s',t'}(\mathbf{x})}$$
+功率启发式（$\beta=2$）：
+$$w_{s,t}(\mathbf{x}) = \frac{p_{s,t}^2(\mathbf{x})}{\sum_{s',t'} p_{s',t'}^2(\mathbf{x})}$$
+最优性分析：平衡启发式在所有无偏权重中具有最小方差的二阶近似。</p>
+<p>实际应用：</p>
+<ul>
+<li>直接光照：结合BSDF采样和光源采样</li>
+<li>焦散：优先使用光源路径</li>
+<li>间接漫反射：优先使用相机路径</li>
+</ul>
+</details>
+<p><strong>练习17.7</strong> 设计一个自适应采样策略，根据梯度的局部方差动态调整采样密度。</p>
+<p><em>提示</em>：使用梯度的空间相关性和时间相关性。</p>
+<details>
+<summary>答案</summary>
+<p>自适应采样框架：</p>
+<ol>
+<li>
+<p><strong>方差估计</strong>：
+$$\hat{\sigma}^2_{ij} = \frac{1}{N-1}\sum_{k=1}^{N} (g_k - \bar{g})^2$$</p>
+</li>
+<li>
+<p><strong>采样密度分配</strong>：
+$$N_{ij} = N_{total} \frac{\hat{\sigma}_{ij}}{\sum_{i',j'} \hat{\sigma}_{i',j'}}$$</p>
+</li>
+<li>
+<p><strong>空间相关性</strong>：使用Gaussian filter平滑方差图：
+$$\tilde{\sigma}^2_{ij} = \sum_{(i',j') \in \mathcal{N}(i,j)} w_{i',j'} \hat{\sigma}^2_{i',j'}$$</p>
+</li>
+<li>
+<p><strong>时间相关性</strong>：指数移动平均：
+$$\sigma^2_{ij}(t) = \alpha \tilde{\sigma}^2_{ij}(t) + (1-\alpha) \sigma^2_{ij}(t-1)$$</p>
+</li>
+<li>
+<p><strong>分层采样</strong>：将图像分块，每块内部均匀采样。</p>
+</li>
+</ol>
+<p>收敛性分析：</p>
+<ul>
+<li>总体方差：$\text{Var}_{total} \propto \sum_{ij} \frac{\sigma^2_{ij}}{N_{ij}}$</li>
+<li>最优分配最小化总体方差</li>
+</ul>
+</details>
+<p><strong>练习17.8</strong> 推导带有运动模糊的可微渲染公式，考虑时间维度的积分。</p>
+<p><em>提示</em>：将时间作为额外的积分维度。</p>
+<details>
+<summary>答案</summary>
+<p>运动模糊渲染方程：
+$$I(\mathbf{x}) = \int_0^T \int_{\Omega} L(\mathbf{x}, \omega, t) dt d\omega$$
+其中物体位置随时间变化：
+$$\mathbf{v}(t) = \mathbf{v}_0 + t\mathbf{v}_{velocity}$$
+可微形式：
+$$\frac{\partial I}{\partial \mathbf{v}_0} = \int_0^T \int_{\Omega} \frac{\partial L}{\partial \mathbf{v}} \frac{\partial \mathbf{v}(t)}{\partial \mathbf{v}_0} dt d\omega$$
+离散化（分层采样）：
+$$I \approx \frac{1}{N_t} \sum_{i=1}^{N_t} L(\mathbf{x}, \omega, t_i)$$</p>
+<p>梯度计算考虑：</p>
+<ol>
+<li>可见性随时间变化</li>
+<li>着色随时间变化</li>
+<li>时间采样的重要性</li>
+</ol>
+<p>优化：使用时间相干性减少采样。</p>
+</details>
+<h2 id="_7">常见陷阱与错误</h2>
+<h3 id="1">1. 梯度偏差问题</h3>
+<p><strong>陷阱</strong>：直接对Monte Carlo估计求导可能产生有偏梯度。</p>
+<p><strong>正确做法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="gh">#</span> 错误：先采样后求导
+samples = sample(p(theta))
+loss = mean(f(samples))
+grad = autograd(loss, theta)  # 有偏！
+
+<span class="gh">#</span> 正确：使用重参数化或REINFORCE
+epsilon = sample(p_base)
+samples = reparameterize(epsilon, theta)
+loss = mean(f(samples))
+grad = autograd(loss, theta)  # 无偏
+</code></pre></div>
+
+<h3 id="2">2. 数值稳定性</h3>
+<p><strong>陷阱</strong>：软光栅化中过小的$\sigma$导致梯度消失或爆炸。</p>
+<p><strong>调试技巧</strong>：</p>
+<ul>
+<li>监控梯度范数：$|\nabla|_2$</li>
+<li>使用梯度裁剪：$\nabla = \text{clip}(\nabla, -c, c)$</li>
+<li>自适应调整软化参数</li>
+</ul>
+<h3 id="3">3. 采样效率</h3>
+<p><strong>陷阱</strong>：均匀采样在高维空间中效率极低。</p>
+<p><strong>优化策略</strong>：</p>
+<ul>
+<li>使用重要性采样</li>
+<li>分层采样减少方差</li>
+<li>准蒙特卡洛方法（如Sobol序列）</li>
+</ul>
+<h3 id="4">4. 内存管理</h3>
+<p><strong>陷阱</strong>：存储完整计算图导致内存溢出。</p>
+<p><strong>解决方案</strong>：</p>
+<ul>
+<li>梯度检查点（gradient checkpointing）</li>
+<li>分块处理大场景</li>
+<li>使用低精度（如float16）计算</li>
+</ul>
+<h3 id="5">5. 边界处理</h3>
+<p><strong>陷阱</strong>：硬边界导致梯度为零，优化停滞。</p>
+<p><strong>改进方法</strong>：</p>
+<ul>
+<li>使用软边界近似</li>
+<li>边界积分提供准确梯度</li>
+<li>结合多种梯度估计方法</li>
+</ul>
+<h2 id="_8">最佳实践检查清单</h2>
+<h3 id="_9">算法设计审查</h3>
+<ul>
+<li>[ ] 是否正确处理了可见性不连续？</li>
+<li>[ ] 梯度估计是否无偏？</li>
+<li>[ ] 是否使用了适当的重要性采样？</li>
+<li>[ ] 内存使用是否在可接受范围内？</li>
+<li>[ ] 是否考虑了数值稳定性？</li>
+</ul>
+<h3 id="_10">实现优化审查</h3>
+<ul>
+<li>[ ] 是否利用了GPU并行计算？</li>
+<li>[ ] 是否实现了早期剔除优化？</li>
+<li>[ ] 是否使用了空间数据结构加速？</li>
+<li>[ ] 是否实现了自适应采样？</li>
+<li>[ ] 是否缓存了可重用的中间结果？</li>
+</ul>
+<h3 id="_11">验证测试审查</h3>
+<ul>
+<li>[ ] 是否通过了梯度检查（有限差分验证）？</li>
+<li>[ ] 是否在简单场景下验证了正确性？</li>
+<li>[ ] 是否测试了极端情况（退化三角形等）？</li>
+<li>[ ] 是否评估了收敛速度？</li>
+<li>[ ] 是否比较了不同方法的性能？</li>
+</ul>
+<h3 id="_12">参数调优审查</h3>
+<ul>
+<li>[ ] 软化参数$\sigma$是否合适？</li>
+<li>[ ] 采样数量是否足够？</li>
+<li>[ ] 学习率是否适应梯度尺度？</li>
+<li>[ ] 是否需要预热（warm-up）？</li>
+<li>[ ] 是否需要渐进式训练？</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter16.html" class="nav-link prev">← 第16章：3D Gaussian Splatting</a><a href="./chapter18.html" class="nav-link next">第18章：高级可微渲染与逆向问题 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第22章：形状分析与检索</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class=""><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class=""><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class=""><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class=""><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class=""><a href="./chapter21.html">第21章：深度生成模型</a></li><li class="active"><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class=""><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="22">第22章：形状分析与检索</h1>
+<p>本章深入探讨三维形状的数学分析方法和检索技术。我们将从经典的形状描述子出发，通过谱分析揭示形状的内在几何特性，利用最优传输理论度量形状之间的相似性，并研究功能驱动的形状分析方法。这些技术构成了现代3D打印设计检索、质量评估和智能推荐系统的数学基础。</p>
+<h2 id="221-d2">22.1 形状描述子：D2、光场描述子</h2>
+<p>形状描述子是将三维几何编码为紧凑特征向量的数学方法，在3D打印设计检索、质量控制和相似性分析中起关键作用。理想的描述子应满足：判别性（区分不同形状）、鲁棒性（对噪声不敏感）、不变性（对刚体变换不变）和紧凑性（低维表示）。</p>
+<h3 id="2211">22.1.1 全局形状描述子理论</h3>
+<p><strong>形状描述子的数学框架</strong></p>
+<p>设 $\mathcal{S} \subset \mathbb{R}^3$ 为三维形状，形状描述子是映射：
+$$\Phi: \mathcal{S} \rightarrow \mathbb{R}^d$$
+其中 $d$ 是描述子维度。两个形状 $\mathcal{S}_1, \mathcal{S}_2$ 的相似度通过描述子空间的距离度量：
+$$d(\mathcal{S}_1, \mathcal{S}_2) = |\Phi(\mathcal{S}_1) - \Phi(\mathcal{S}_2)|_p$$
+典型的 $p$-范数选择：</p>
+<ul>
+<li>$p=1$：Manhattan距离，对异常值鲁棒</li>
+<li>$p=2$：欧氏距离，最常用</li>
+<li>$p=\infty$：Chebyshev距离，关注最大差异</li>
+</ul>
+<p><strong>不变性要求的群论表述</strong></p>
+<p>对于刚体变换群 $SE(3) = SO(3) \ltimes \mathbb{R}^3$，理想描述子应满足：
+$$\Phi(g \cdot \mathcal{S}) = \Phi(\mathcal{S}), \quad \forall g \in SE(3)$$
+更一般地，对于变换群 $G$ 的作用，不变描述子满足等变性图表：
+$$\begin{CD}
+\mathcal{S} @&gt;{\Phi}&gt;&gt; \mathbb{R}^d \\
+@V{g}VV @V{\rho(g)}VV \\
+g \cdot \mathcal{S} @&gt;{\Phi}&gt;&gt; \mathbb{R}^d
+\end{CD}$$
+其中 $\rho(g) = I$ 对于不变描述子。</p>
+<p>对于缩放不变性，引入相似变换群 $\text{Sim}(3) = \mathbb{R}^+ \times SE(3)$：
+$$\Phi(s \cdot g \cdot \mathcal{S}) = \Phi(\mathcal{S}), \quad s \in \mathbb{R}^+, g \in SE(3)$$
+实现方法：</p>
+<ul>
+<li>显式归一化：$\tilde{\mathcal{S}} = \mathcal{S} / \text{scale}(\mathcal{S})$</li>
+<li>比值特征：$\phi_i/\phi_j$ 自然消除尺度</li>
+<li>对数域表示：$\log(\phi_i) - \log(\phi_j)$</li>
+</ul>
+<p><strong>信息论视角与率失真理论</strong></p>
+<p>从信息论角度，描述子提取过程是有损压缩，目标是最大化互信息：
+$$I(\mathcal{S}; \Phi(\mathcal{S})) = H(\mathcal{S}) - H(\mathcal{S}|\Phi(\mathcal{S}))$$
+率失真函数定义最优压缩边界：
+$$R(D) = \min_{p(\hat{s}|s): \mathbb{E}[d(S,\hat{S})] \leq D} I(S; \hat{S})$$
+其中 $D$ 是允许的失真度。拉格朗日形式：
+$$\mathcal{L} = I(S; \hat{S}) + \beta \mathbb{E}[d(S,\hat{S})]$$
+最优描述子在率失真曲线的拐点处取得信息-紧凑性平衡。</p>
+<p><strong>描述子的判别能力分析</strong></p>
+<p>Fisher判别率定义类间/类内距离比：
+$$J(\Phi) = \frac{\text{tr}(S_B)}{\text{tr}(S_W)}$$
+其中：</p>
+<ul>
+<li>类间散度矩阵：$S_B = \sum_i n_i (\mu_i - \mu)(\mu_i - \mu)^T$</li>
+<li>类内散度矩阵：$S_W = \sum_i \sum_{x \in C_i} (x - \mu_i)(x - \mu_i)^T$</li>
+</ul>
+<p>最优投影通过广义特征值问题求解：
+$$S_B v = \lambda S_W v$$
+<strong>维度约简与流形学习</strong></p>
+<p>形状空间往往位于高维空间的低维流形上。设形状流形 $\mathcal{M} \subset \mathbb{R}^N$，内在维度 $d \ll N$。</p>
+<p>局部线性嵌入（LLE）保持局部几何：
+$$\Phi^* = \arg\min_\Phi \sum_i \left|\Phi(S_i) - \sum_{j \in N(i)} w_{ij} \Phi(S_j)\right|^2$$
+等距映射（Isomap）保持测地距离：
+$$\Phi^* = \arg\min_\Phi \sum_{i,j} (d_{\mathbb{R}^d}(\Phi(S_i), \Phi(S_j)) - d_{\mathcal{M}}(S_i, S_j))^2$$
+扩散映射利用随机游走：
+$$\Phi_t(x) = (\lambda_1^t \psi_1(x), \lambda_2^t \psi_2(x), \ldots)$$
+其中 $\lambda_i, \psi_i$ 是转移算子的特征值和特征函数。</p>
+<h3 id="2212-d2">22.1.2 D2形状分布</h3>
+<p><strong>D2描述子定义</strong></p>
+<p>D2形状分布基于形状内随机点对距离的统计分布。对于形状 $\mathcal{S}$，随机采样两点 $p, q \in \mathcal{S}$，其欧氏距离：
+$$d_{pq} = |p - q|_2$$
+D2描述子是距离分布的直方图：
+$$h_i = P(d_{pq} \in [r_i, r_{i+1}])$$
+归一化形式考虑形状的最大距离：
+$$\tilde{h}_i = P\left(\frac{d_{pq}}{d_{\max}} \in \left[\frac{r_i}{d_{\max}}, \frac{r_{i+1}}{d_{\max}}\right]\right)$$
+其中 $d_{\max} = \max_{p,q \in \mathcal{S}} |p - q|_2$ 是形状直径。</p>
+<p><strong>概率密度估计与核选择</strong></p>
+<p>使用核密度估计（KDE）得到连续分布：
+$$f_D(r) = \frac{1}{N} \sum_{i=1}^{N} K\left(\frac{r - d_i}{h}\right)$$
+核函数选择：</p>
+<ul>
+<li>高斯核：$K(u) = \frac{1}{\sqrt{2\pi}} e^{-u^2/2}$，平滑但可能过度模糊</li>
+<li>Epanechnikov核：$K(u) = \frac{3}{4}(1-u^2) \mathbb{1}_{|u| \leq 1}$，最优MISE</li>
+<li>三角核：$K(u) = (1-|u|) \mathbb{1}_{|u| \leq 1}$，计算高效</li>
+</ul>
+<p>带宽选择（Silverman规则）：
+$$h = 1.06 \cdot \sigma \cdot N^{-1/5}$$
+交叉验证优化：
+$$h^* = \arg\min_h \text{CV}(h) = \arg\min_h \sum_{i=1}^N \left[\hat{f}_{-i}(d_i; h) - f(d_i)\right]^2$$
+<strong>统计矩特征的几何意义</strong></p>
+<p>D2分布的统计矩提供紧凑描述：</p>
+<ul>
+<li>均值：$\mu = \mathbb{E}[d_{pq}] \approx 0.6 \cdot d_{\max}$（紧致形状）</li>
+<li>方差：$\sigma^2 = \text{Var}[d_{pq}]$，反映形状的伸展程度</li>
+<li>偏度：$\gamma_1 = \mathbb{E}\left[\left(\frac{d_{pq} - \mu}{\sigma}\right)^3\right]$，检测形状不对称性</li>
+<li>峰度：$\gamma_2 = \mathbb{E}\left[\left(\frac{d_{pq} - \mu}{\sigma}\right)^4\right] - 3$，识别outlier结构</li>
+</ul>
+<p>中心矩的递推计算：
+$$m_k = \mathbb{E}[(d_{pq} - \mu)^k] = \frac{1}{N} \sum_{i=1}^N (d_i - \mu)^k$$
+标准化矩（尺度不变）：
+$$\tilde{m}_k = \frac{m_k}{m_2^{k/2}}$$
+<strong>采样策略优化</strong></p>
+<p>均匀采样的方差分析：
+$$\text{Var}[\hat{h}_i] = \frac{h_i(1-h_i)}{N}$$
+最优采样数（Chernoff界）：
+$$N \geq \frac{3}{\epsilon^2} \log\left(\frac{2B}{\delta}\right)$$
+保证 $P(|\hat{h}_i - h_i| &gt; \epsilon) &lt; \delta$，其中 $B$ 是直方图箱数。</p>
+<p>重要性采样减少方差：
+$$\rho^*(p) \propto \sqrt{\text{Var}[d_{p\cdot}]}$$
+即在距离方差大的区域密集采样。</p>
+<p>自适应采样算法：</p>
+<ol>
+<li>初始均匀采样 $N_0$ 点</li>
+<li>估计局部方差 $\hat{\sigma}^2(p)$</li>
+<li>更新采样密度：$\rho_{t+1}(p) = \rho_t(p) \cdot (1 + \alpha \hat{\sigma}(p))$</li>
+<li>迭代直到收敛</li>
+</ol>
+<p><strong>形状族的D2签名</strong></p>
+<p>不同几何类别的D2特征：</p>
+<ul>
+<li>球体：单峰分布，峰值在 $\sqrt{2}r$</li>
+<li>立方体：双峰分布，对应面内和对角距离</li>
+<li>细长形状：右偏分布，$\gamma_1 &gt; 0$</li>
+<li>分支结构：多峰分布，反映不同尺度</li>
+</ul>
+<h3 id="2213">22.1.3 光场描述子</h3>
+<p><strong>光场表示理论</strong></p>
+<p>光场描述子将形状编码为从各个视角观察的2D投影集合。定义观察球面 $\mathbb{S}^2$，视点 $v \in \mathbb{S}^2$ 的投影图像：
+$$I_v = \Pi_v(\mathcal{S})$$
+其中 $\Pi_v$ 是沿方向 $v$ 的正交投影算子。</p>
+<p>投影算子的数学定义：
+$$\Pi_v(p) = p - (p \cdot v)v$$
+投影到像平面的坐标变换：
+$$\begin{bmatrix} u \\ v \end{bmatrix} = \begin{bmatrix} e_1^T \\ e_2^T \end{bmatrix} \Pi_v(p)$$
+其中 $\{e_1, e_2, v\}$ 构成正交基。</p>
+<p><strong>Zernike矩描述</strong></p>
+<p>对每个投影图像计算Zernike矩：
+$$Z_{nm} = \frac{n+1}{\pi} \int\int_{x^2+y^2 \leq 1} I(x,y) V_{nm}^*(x,y) \, dx dy$$
+Zernike多项式的显式形式：
+$$V_{nm}(r,\theta) = R_{nm}(r) e^{im\theta}$$
+径向多项式通过递推关系计算：
+$$R_{nm}(r) = \sum_{k=0}^{(n-|m|)/2} \frac{(-1)^k (n-k)!}{k! \left(\frac{n+|m|}{2}-k\right)! \left(\frac{n-|m|}{2}-k\right)!} r^{n-2k}$$
+正交性条件：
+$$\int_0^1 R_{nm}(r) R_{n'm}(r) r \, dr = \frac{\delta_{nn'}}{2n+1}$$
+$$\int_0^{2\pi} e^{im\theta} e^{-im'\theta} \, d\theta = 2\pi\delta_{mm'}$$
+Zernike矩的旋转不变性：投影旋转 $\alpha$ 导致：
+$$Z'_{nm} = Z_{nm} e^{-im\alpha}$$
+因此 $|Z_{nm}|$ 是旋转不变量。</p>
+<p><strong>球面采样策略</strong></p>
+<p>均匀球面采样（Fibonacci格点）：
+$$\theta_i = \arccos(1 - 2i/N)$$
+$$\phi_i = 2\pi i \cdot \frac{\sqrt{5}-1}{2}$$
+其中 $i = 0, 1, \ldots, N-1$。</p>
+<p>测地网格采样（icosahedron细分）：</p>
+<ol>
+<li>从正二十面体开始</li>
+<li>递归细分每个三角形</li>
+<li>投影到单位球面：$v' = v/|v|$</li>
+</ol>
+<p>采样密度分析（Voronoi面积）：
+$$A_i = \int_{\text{Vor}(v_i)} d\Omega \approx \frac{4\pi}{N}$$
+<strong>球面积分与调和分析</strong></p>
+<p>光场在观察球面上的积分：
+$$L(\mathcal{S}) = \int_{\mathbb{S}^2} |I_v|^2 \, dv$$
+球谐展开的完整形式：
+$$I_v(\theta,\phi) = \sum_{l=0}^{\infty} \sum_{m=-l}^{l} a_{lm} Y_l^m(\theta,\phi)$$
+球谐函数的显式表达：
+$$Y_l^m(\theta,\phi) = \sqrt{\frac{2l+1}{4\pi}\frac{(l-m)!}{(l+m)!}} P_l^m(\cos\theta) e^{im\phi}$$
+展开系数通过内积计算：
+$$a_{lm} = \int_{\mathbb{S}^2} I_v(\theta,\phi) Y_l^m(\theta,\phi)^* \sin\theta \, d\theta d\phi$$
+Parseval定理：
+$$\int_{\mathbb{S}^2} |I_v|^2 \, d\Omega = \sum_{l=0}^{\infty} \sum_{m=-l}^{l} |a_{lm}|^2$$
+旋转不变能量谱：
+$$E_l = \sum_{m=-l}^{l} |a_{lm}|^2$$
+功率谱密度：
+$$S(l) = \frac{E_l}{2l+1}$$
+<strong>多分辨率光场分析</strong></p>
+<p>带限逼近误差：
+$$\epsilon_L = \sum_{l&gt;L} E_l = \int_{\mathbb{S}^2} |I_v - I_v^L|^2 \, d\Omega$$
+最优截断选择（保留95%能量）：
+$$L^* = \min\left\{L : \sum_{l=0}^L E_l \geq 0.95 \sum_{l=0}^{\infty} E_l\right\}$$
+小波光场分析（球面小波）：
+$$\psi_{j,k}(\theta,\phi) = 2^j \psi(2^j\theta - k_\theta, 2^j\phi - k_\phi)$$
+多尺度系数：
+$$w_{j,k} = \langle I_v, \psi_{j,k} \rangle$$</p>
+<h3 id="2214">22.1.4 球谐描述子</h3>
+<p><strong>球谐函数基础</strong></p>
+<p>球谐函数 $Y_l^m(\theta, \phi)$ 是球面上的正交基：
+$$Y_l^m(\theta, \phi) = \sqrt{\frac{2l+1}{4\pi} \frac{(l-m)!}{(l+m)!}} P_l^m(\cos\theta) e^{im\phi}$$
+其中 $P_l^m$ 是关联Legendre多项式。</p>
+<p><strong>形状的球谐展开</strong></p>
+<p>将形状表面参数化到单位球面，半径函数：
+$$r(\theta, \phi) = \sum_{l=0}^{L} \sum_{m=-l}^{l} c_{lm} Y_l^m(\theta, \phi)$$
+展开系数：
+$$c_{lm} = \int_{\mathbb{S}^2} r(\theta, \phi) Y_l^m(\theta, \phi)^* \, d\Omega$$
+<strong>旋转不变性构造</strong></p>
+<p>在 $SO(3)$ 群作用下，球谐系数变换为：
+$$c'_{lm} = \sum_{m'=-l}^{l} D^l_{mm'}(R) c_{lm'}$$
+其中 $D^l$ 是Wigner D-矩阵。构造不变量：
+$$I_l = |c_l|^2 = \sum_{m=-l}^{l} |c_{lm}|^2$$
+<strong>多分辨率分析</strong></p>
+<p>不同阶数 $l$ 捕获不同尺度特征：</p>
+<ul>
+<li>$l=0$：平均半径（体积信息）</li>
+<li>$l=1$：质心偏移</li>
+<li>$l=2$：主轴方向</li>
+<li>$l&gt;2$：细节特征</li>
+</ul>
+<p>带限重构误差：
+$$\epsilon_L = \int_{\mathbb{S}^2} \left|r(\theta,\phi) - \sum_{l=0}^{L} \sum_{m=-l}^{l} c_{lm} Y_l^m\right|^2 d\Omega$$</p>
+<h3 id="2215">22.1.5 描述子的不变性分析</h3>
+<p><strong>群论视角</strong></p>
+<p>形状空间 $\mathcal{M}$ 在变换群 $G$ 作用下的商空间：
+$$\mathcal{M}/G = \{[S] : S \in \mathcal{M}\}$$
+其中 $[S] = \{g \cdot S : g \in G\}$ 是等价类。不变描述子是商映射：
+$$\Phi: \mathcal{M}/G \rightarrow \mathbb{R}^d$$
+<strong>Haar积分与不变性</strong></p>
+<p>对于紧致李群 $G$，使用Haar测度构造不变量：
+$$\Phi_{\text{inv}}(S) = \int_G \Phi(g \cdot S) \, dg$$
+例如，对 $SO(3)$ 旋转群：
+$$\Phi_{\text{rot-inv}}(S) = \frac{1}{8\pi^2} \int_{SO(3)} \Phi(R \cdot S) \, dR$$
+<strong>主成分对齐</strong></p>
+<p>通过主成分分析（PCA）实现姿态归一化：</p>
+<ol>
+<li>
+<p>计算惯性张量：
+$$I_{ij} = \int_{\mathcal{S}} (x_i - \bar{x}_i)(x_j - \bar{x}_j) \, dV$$</p>
+</li>
+<li>
+<p>特征分解：$I = V\Lambda V^T$</p>
+</li>
+<li>
+<p>对齐到主轴：$S' = V^T(S - \bar{x})$</p>
+</li>
+</ol>
+<p><strong>度量学习与不变性</strong></p>
+<p>学习度量张量 $M$ 使得：
+$$d_M(S_1, S_2) = \sqrt{(\Phi(S_1) - \Phi(S_2))^T M (\Phi(S_1) - \Phi(S_2))}$$
+优化目标包含不变性约束：
+$$\min_M \sum_{i,j} \ell(d_M(S_i, S_j), y_{ij}) + \lambda \sum_{g \in G} d_M(S, g \cdot S)$$</p>
+<h2 id="222-laplacian">22.2 谱分析与Laplacian特征</h2>
+<p>谱几何将形状分析转化为线性算子的特征值问题，揭示形状的内在几何性质。Laplace-Beltrami算子的谱包含了从全局到局部的多尺度几何信息，在3D打印的形状匹配、分割和变形分析中有重要应用。</p>
+<h3 id="2221-laplace-beltrami">22.2.1 Laplace-Beltrami算子谱理论</h3>
+<p><strong>连续Laplace-Beltrami算子</strong></p>
+<p>对于黎曼流形 $(M, g)$，Laplace-Beltrami算子定义为：
+$$\Delta_g f = -\text{div}(\text{grad} f) = -\frac{1}{\sqrt{\det g}} \partial_i \left(\sqrt{\det g} g^{ij} \partial_j f\right)$$
+在局部坐标系下，对于曲面嵌入 $\mathbb{R}^3$：
+$$\Delta_M f = \frac{1}{\sqrt{EG-F^2}} \left[\frac{\partial}{\partial u}\left(\frac{G f_u - F f_v}{\sqrt{EG-F^2}}\right) + \frac{\partial}{\partial v}\left(\frac{E f_v - F f_u}{\sqrt{EG-F^2}}\right)\right]$$
+其中 $E, F, G$ 是第一基本形式系数。</p>
+<p><strong>离散Laplacian矩阵</strong></p>
+<p>余切权重公式（Cotangent Laplacian）：
+$$L_{ij} = \begin{cases}
+-\frac{1}{2}(\cot \alpha_{ij} + \cot \beta_{ij}) &amp; \text{if } (i,j) \in E \\
+\sum_{k \neq i} -L_{ik} &amp; \text{if } i = j \\
+0 &amp; \text{otherwise}
+\end{cases}$$
+其中 $\alpha_{ij}, \beta_{ij}$ 是边 $(i,j)$ 对角。</p>
+<p>归一化形式：
+$$\tilde{L} = D^{-1}L$$
+其中 $D_{ii} = \frac{1}{3}\sum_{j \in N(i)} A_j$ 是Voronoi面积。</p>
+<p><strong>特征值问题</strong></p>
+<p>广义特征值问题：
+$$L\phi = \lambda M\phi$$
+其中 $M$ 是质量矩阵（对角矩阵，$M_{ii}$ 为顶点 $i$ 的Voronoi面积）。</p>
+<p>特征值满足：
+$$0 = \lambda_0 &lt; \lambda_1 \leq \lambda_2 \leq \cdots$$
+<strong>Weyl渐近定理</strong></p>
+<p>特征值的渐近行为：
+$$\lambda_k \sim \frac{4\pi k}{\text{Area}(M)} \quad \text{as } k \to \infty$$
+计数函数：
+$$N(\lambda) = #\{k : \lambda_k \leq \lambda\} \sim \frac{\text{Area}(M)}{4\pi} \lambda + O(\sqrt{\lambda})$$
+<strong>谱与几何的关系</strong></p>
+<p>听鼓问题（Can one hear the shape of a drum?）：</p>
+<ul>
+<li>面积：$\text{Area} = \lim_{t \to 0^+} \sum_{k} e^{-\lambda_k t}$</li>
+<li>周长：通过热核迹的渐近展开获得</li>
+<li>亏格：通过谱的多重性结构推断</li>
+</ul>
+<h3 id="2222">22.2.2 特征函数与振动模态</h3>
+<p><strong>特征函数的物理意义</strong></p>
+<p>Helmholtz方程：
+$$\Delta \phi + \lambda \phi = 0$$
+对应于弹性膜的振动模态，$\sqrt{\lambda_k}$ 是第 $k$ 个固有频率。</p>
+<p><strong>节点集与节点域</strong></p>
+<p>第 $k$ 个特征函数的节点集：
+$$N_k = \{x \in M : \phi_k(x) = 0\}$$
+Courant节点域定理：$\phi_k$ 将流形分割成至多 $k$ 个连通分量。</p>
+<p><strong>特征函数的正交性</strong>
+$$\int_M \phi_i \phi_j \, dV = \delta_{ij}$$
+$$\int_M \nabla \phi_i \cdot \nabla \phi_j \, dV = \lambda_i \delta_{ij}$$
+<strong>Fiedler向量与谱分割</strong></p>
+<p>第二特征函数（Fiedler向量）最小化：
+$$\phi_1 = \arg\min_{\phi \perp \mathbf{1}} \frac{\int_M |\nabla \phi|^2 \, dV}{\int_M \phi^2 \, dV}$$
+用于形状的二分分割：
+$$M = M^+ \cup M^-, \quad M^{\pm} = \{x : \pm\phi_1(x) &gt; 0\}$$
+<strong>高阶特征函数的对称性</strong></p>
+<p>利用群表示理论分析特征空间的对称性：</p>
+<ul>
+<li>如果 $g \in \text{Isom}(M)$，则 $\phi_k \circ g$ 也是特征函数</li>
+<li>特征空间按对称群的不可约表示分解</li>
+</ul>
+<h3 id="2223-heat-kernel-signature">22.2.3 Heat Kernel Signature</h3>
+<p><strong>热方程与热核</strong></p>
+<p>热方程：
+$$\frac{\partial u}{\partial t} = -\Delta u$$
+热核 $k_t(x,y)$ 是基本解：
+$$u(x,t) = \int_M k_t(x,y) u_0(y) \, dy$$
+谱展开：
+$$k_t(x,y) = \sum_{i=0}^{\infty} e^{-\lambda_i t} \phi_i(x) \phi_i(y)$$
+<strong>Heat Kernel Signature (HKS)</strong></p>
+<p>点 $x$ 的HKS定义为：
+$$h_t(x) = k_t(x,x) = \sum_{i=0}^{\infty} e^{-\lambda_i t} \phi_i(x)^2$$
+物理意义：从点 $x$ 出发的热量经时间 $t$ 后返回的概率。</p>
+<p><strong>多尺度特性</strong></p>
+<p>不同时间尺度捕获不同几何特征：</p>
+<ul>
+<li>小 $t$：局部几何（曲率）</li>
+<li>大 $t$：全局几何（体积、连通性）</li>
+</ul>
+<p>短时渐近展开：
+$$h_t(x) \sim \frac{1}{4\pi t} \left(1 + \frac{t}{6}K(x) + O(t^2)\right)$$
+其中 $K(x)$ 是高斯曲率。</p>
+<p><strong>尺度不变HKS</strong></p>
+<p>对数采样时间：$t_j = t_{\min} \cdot \alpha^j$</p>
+<p>归一化：
+$$\tilde{h}_t(x) = \frac{h_t(x)}{\int_M h_t(y) \, dy}$$
+<strong>HKS的稳定性</strong></p>
+<p>对于近似等距变形，HKS的变化有界：
+$$|h_t(x) - h_t(f(x))| \leq C \cdot d_{\text{GH}}(M_1, M_2)$$
+其中 $d_{\text{GH}}$ 是Gromov-Hausdorff距离。</p>
+<h3 id="2224-wave-kernel-signature">22.2.4 Wave Kernel Signature</h3>
+<p><strong>波动方程与波核</strong></p>
+<p>波动方程：
+$$\frac{\partial^2 u}{\partial t^2} = -\Delta u$$
+波核解：
+$$u(x,t) = \int_M w_t(x,y) u_0(y) \, dy$$
+谱表示：
+$$w_t(x,y) = \sum_{i=0}^{\infty} \cos(\sqrt{\lambda_i} t) \phi_i(x) \phi_i(y)$$
+<strong>Wave Kernel Signature (WKS)</strong></p>
+<p>能量概率分布：
+$$\text{WKS}_e(x) = \sum_{i=0}^{\infty} \phi_i(x)^2 \psi_e(\lambda_i)$$
+其中 $\psi_e$ 是能量滤波器：
+$$\psi_e(\lambda) = C \exp\left(-\frac{(\log e - \log \lambda)^2}{2\sigma^2}\right)$$
+<strong>频率选择性</strong></p>
+<p>WKS在频域的局部化优于HKS：</p>
+<ul>
+<li>HKS：低通滤波器 $e^{-\lambda t}$</li>
+<li>WKS：带通滤波器 $\psi_e(\lambda)$</li>
+</ul>
+<p><strong>量子力学解释</strong></p>
+<p>WKS对应量子粒子在能量 $e$ 处的位置概率密度：
+$$|\langle x | E \rangle|^2 = \sum_{i: \lambda_i \approx E} |\phi_i(x)|^2$$
+<strong>尺度空间分析</strong></p>
+<p>对数能量采样：$e_j = e_{\min} \cdot \gamma^j$</p>
+<p>方差选择：$\sigma = k \cdot \Delta \log e$，其中 $k \approx 7$ 保证充分重叠。</p>
+<h3 id="2225">22.2.5 谱距离与谱嵌入</h3>
+<p><strong>扩散距离</strong></p>
+<p>基于热核的扩散距离：
+$$d_t^2(x,y) = \sum_{z \in M} \frac{(k_t(x,z) - k_t(y,z))^2}{h_t(z)}$$
+简化形式：
+$$d_t^2(x,y) = \sum_{i=1}^{\infty} e^{-2\lambda_i t} (\phi_i(x) - \phi_i(y))^2$$
+<strong>谱嵌入</strong></p>
+<p>将形状嵌入到特征空间：
+$$\Psi: M \rightarrow \mathbb{R}^k$$
+$$\Psi(x) = (\phi_1(x), \phi_2(x), \ldots, \phi_k(x))$$
+嵌入保持扩散距离的近似：
+$$|Ψ(x) - Ψ(y)|^2 \approx d_\infty^2(x,y)$$
+<strong>交换距离</strong></p>
+<p>测量两个形状谱的差异：
+$$d_{\text{CD}}(M_1, M_2) = |\lambda(M_1) - \lambda(M_2)|_2$$
+其中 $\lambda(M) = (\lambda_1, \lambda_2, \ldots)$ 是特征值序列。</p>
+<p><strong>Gromov-Wasserstein距离</strong></p>
+<p>结合谱信息的形状距离：
+$$d_{GW}(M_1, M_2) = \min_{\pi} \int\int |d_{M_1}(x,y) - d_{M_2}(x',y')|^2 \, d\pi(x,x') d\pi(y,y')$$
+可通过谱近似加速计算。</p>
+<p><strong>谱同步</strong></p>
+<p>多个形状的联合谱分析：给定形状集合 $\{M_i\}$，寻找一致的谱基：
+$$\min_{\{R_i \in SO(k)\}} \sum_{i,j} |R_i \Phi_i - R_j \Phi_j|_F^2$$
+其中 $\Phi_i$ 是形状 $M_i$ 的前 $k$ 个特征函数矩阵。</p>
+<h2 id="223-wasserstein">22.3 最优传输与Wasserstein距离</h2>
+<p>最优传输理论提供了比较概率分布和形状的强大数学框架。在3D打印中，它用于形状插值、变形设计、材料分布优化等。Wasserstein距离考虑了几何结构，比简单的点对点距离更适合形状分析。</p>
+<h3 id="2231-monge-kantorovich">22.3.1 Monge-Kantorovich问题</h3>
+<p><strong>Monge问题（1781）</strong></p>
+<p>给定源分布 $\mu$ 和目标分布 $\nu$，寻找传输映射 $T: X \rightarrow Y$ 最小化：
+$$\min_{T_#\mu = \nu} \int_X c(x, T(x)) \, d\mu(x)$$
+其中 $T_#\mu$ 是推前测度，$c(x,y)$ 是传输成本。</p>
+<p><strong>Kantorovich松弛（1942）</strong></p>
+<p>允许质量分裂，引入传输计划 $\pi \in \Pi(\mu, \nu)$：
+$$\min_{\pi \in \Pi(\mu,\nu)} \int_{X \times Y} c(x,y) \, d\pi(x,y)$$
+约束条件：
+$$\int_Y d\pi(x,y) = d\mu(x), \quad \int_X d\pi(x,y) = d\nu(y)$$
+<strong>Wasserstein-p距离</strong></p>
+<p>当 $c(x,y) = d(x,y)^p$ 时，定义 $p$-Wasserstein距离：
+$$W_p(\mu,\nu) = \left(\inf_{\pi \in \Pi(\mu,\nu)} \int_{X \times Y} d(x,y)^p \, d\pi(x,y)\right)^{1/p}$$
+最常用的是 $W_2$（二次Wasserstein距离）。</p>
+<p><strong>对偶问题</strong></p>
+<p>Kantorovich对偶：
+$$W_1(\mu,\nu) = \sup_{f: \text{Lip}(f) \leq 1} \int f \, d(\mu - \nu)$$
+一般对偶形式：
+$$\int c \, d\pi^* = \sup_{\phi \oplus \psi \leq c} \int \phi \, d\mu + \int \psi \, d\nu$$
+其中 $\phi \oplus \psi(x,y) = \phi(x) + \psi(y)$。</p>
+<p><strong>Brenier定理</strong></p>
+<p>对于 $\mathbb{R}^n$ 上的绝对连续测度，二次成本的最优传输映射是某凸函数的梯度：
+$$T^*(x) = \nabla \phi(x)$$
+其中 $\phi$ 满足Monge-Ampère方程：
+$$\det(D^2\phi) = \frac{\rho_\mu(\nabla\phi^{-1})}{\rho_\nu}$$</p>
+<h3 id="2232">22.3.2 离散最优传输</h3>
+<p><strong>离散设置</strong></p>
+<p>源分布：$\mu = \sum_{i=1}^n a_i \delta_{x_i}$，目标分布：$\nu = \sum_{j=1}^m b_j \delta_{y_j}$</p>
+<p>其中 $a \in \Delta_n$, $b \in \Delta_m$ 是概率单纯形。</p>
+<p><strong>线性规划形式</strong>
+$$\min_{P \in \mathbb{R}_+^{n \times m}} \langle C, P \rangle_F$$
+约束条件：
+$$P\mathbf{1}_m = a, \quad P^T\mathbf{1}_n = b$$
+其中 $C_{ij} = c(x_i, y_j)$ 是成本矩阵。</p>
+<p><strong>计算复杂度</strong></p>
+<ul>
+<li>精确解：$O(n^3 \log n)$（网络单纯形法）</li>
+<li>近似解：$O(n^2/\epsilon)$（Sinkhorn算法）</li>
+</ul>
+<p><strong>半离散最优传输</strong></p>
+<p>源为离散，目标为连续：寻找Laguerre细胞分解
+$$V_i = \{y : |y - x_i|^2 - \psi_i \leq |y - x_j|^2 - \psi_j, \forall j\}$$
+使得 $\int_{V_i} d\nu(y) = a_i$。</p>
+<p><strong>正则化传输</strong></p>
+<p>熵正则化：
+$$W_\epsilon(\mu,\nu) = \min_{P \in \Pi(a,b)} \langle C, P \rangle - \epsilon H(P)$$
+其中 $H(P) = -\sum_{ij} P_{ij} \log P_{ij}$ 是熵。</p>
+<h3 id="2233-wasserstein">22.3.3 Wasserstein重心</h3>
+<p><strong>重心问题</strong></p>
+<p>给定测度 $\{\mu_k\}_{k=1}^K$ 和权重 $\{\lambda_k\}$，Wasserstein重心：
+$$\bar{\mu} = \arg\min_\mu \sum_{k=1}^K \lambda_k W_2^2(\mu, \mu_k)$$
+<strong>固定支撑重心</strong></p>
+<p>限制重心支撑在给定点集 $\{x_i\}_{i=1}^n$：
+$$\min_{a \in \Delta_n} \sum_{k=1}^K \lambda_k W_2^2\left(\sum_i a_i \delta_{x_i}, \mu_k\right)$$
+<strong>自由支撑重心</strong></p>
+<p>同时优化权重和位置：
+$$\min_{a \in \Delta_n, X \in \mathbb{R}^{n \times d}} \sum_{k=1}^K \lambda_k W_2^2\left(\sum_i a_i \delta_{x_i}, \mu_k\right)$$
+<strong>迭代算法</strong></p>
+<p>交替优化：</p>
+<ol>
+<li>固定支撑，更新权重（线性规划）</li>
+<li>固定权重，更新支撑（梯度下降）</li>
+</ol>
+<p>收敛到局部最优。</p>
+<p><strong>连续重心的特征</strong></p>
+<p>一阶最优性条件：存在传输映射 $T_k: \text{supp}(\bar{\mu}) \rightarrow \text{supp}(\mu_k)$ 使得：
+$$\sum_{k=1}^K \lambda_k T_k(x) = x, \quad \forall x \in \text{supp}(\bar{\mu})$$</p>
+<h3 id="2234-gromov-wasserstein">22.3.4 Gromov-Wasserstein距离</h3>
+<p><strong>动机</strong></p>
+<p>比较不同度量空间中的分布，无需嵌入到公共空间。</p>
+<p><strong>定义</strong>
+$$GW_p(\mu,\nu) = \inf_{\pi \in \Pi(\mu,\nu)} \left(\int\int |d_X(x,x') - d_Y(y,y')|^p \, d\pi(x,y) d\pi(x',y')\right)^{1/p}$$
+<strong>四阶张量形式</strong></p>
+<p>离散情况下，定义张量：
+$$L_{ijkl} = |d_X(x_i, x_k) - d_Y(y_j, y_l)|^p$$
+优化问题：
+$$\min_{P \in \Pi(a,b)} \sum_{ijkl} L_{ijkl} P_{ij} P_{kl}$$
+<strong>下界与不变性</strong></p>
+<p>GW距离的下界（通过谱）：
+$$GW(\mu,\nu) \geq c \cdot |\lambda_1(\Delta_\mu) - \lambda_1(\Delta_\nu)|$$
+不变性：对等距变换不变。</p>
+<p><strong>Fused Gromov-Wasserstein</strong></p>
+<p>结合特征和几何：
+$$FGW_{\alpha}(\mu,\nu) = \min_{\pi} (1-\alpha) \int c_{feat} \, d\pi + \alpha \int\int c_{geom} \, d\pi^{\otimes 2}$$
+<strong>计算方法</strong></p>
+<ul>
+<li>条件梯度法（Frank-Wolfe）</li>
+<li>近端点算法</li>
+<li>熵正则化加速</li>
+</ul>
+<h3 id="2235-sinkhorn">22.3.5 计算方法：Sinkhorn算法</h3>
+<p><strong>Sinkhorn-Knopp算法</strong></p>
+<p>熵正则化问题的解具有形式：
+$$P^* = \text{diag}(u) K \text{diag}(v)$$
+其中 $K_{ij} = \exp(-C_{ij}/\epsilon)$ 是Gibbs核。</p>
+<p><strong>Sinkhorn迭代</strong></p>
+<p>交替更新缩放向量：
+$$u^{(t+1)} = \frac{a}{Kv^{(t)}}, \quad v^{(t+1)} = \frac{b}{K^Tu^{(t+1)}}$$
+收敛到唯一不动点。</p>
+<p><strong>收敛分析</strong></p>
+<p>线性收敛率：
+$$|P^{(t)} - P^*|_1 \leq C \cdot \kappa^t$$
+其中 $\kappa = \frac{\lambda_2(K)}{\lambda_1(K)} &lt; 1$。</p>
+<p><strong>Log域稳定化</strong></p>
+<p>避免数值下溢：
+$$\log u^{(t+1)} = \log a - \text{LSE}(\log K + \log v^{(t)})$$
+其中 $\text{LSE}$ 是log-sum-exp操作。</p>
+<p><strong>自适应熵退火</strong></p>
+<p>$\epsilon$-scaling策略：</p>
+<ol>
+<li>从大 $\epsilon_0$ 开始</li>
+<li>逐步减小：$\epsilon_{k+1} = \gamma \epsilon_k$</li>
+<li>使用前一步解作为热启动</li>
+</ol>
+<p><strong>多尺度Sinkhorn</strong></p>
+<p>粗细网格策略：</p>
+<ol>
+<li>在粗网格上求解</li>
+<li>插值到细网格</li>
+<li>局部细化</li>
+</ol>
+<p>复杂度从 $O(n^2)$ 降到 $O(n\log n)$。</p>
+<p><strong>GPU加速</strong></p>
+<p>矩阵运算并行化：</p>
+<ul>
+<li>向量外积：$u \otimes v$</li>
+<li>矩阵向量乘：$Kv$</li>
+<li>逐元素运算：$\exp, \log, /$</li>
+</ul>
+<p>批处理多个传输问题。</p>
+<h2 id="224">22.4 功能性分析与协同分割</h2>
+<p>功能性分析关注形状的语义理解和功能推断，这对3D打印的智能设计至关重要。协同分割通过分析多个相关形状来发现一致的部件结构，支持模块化设计和部件重用。</p>
+<h3 id="2241">22.4.1 功能空间理论</h3>
+<p><strong>功能性建模框架</strong></p>
+<p>形状功能定义为交互空间 $\mathcal{I}$ 到任务空间 $\mathcal{T}$ 的映射：
+$$F: \mathcal{S} \times \mathcal{I} \rightarrow \mathcal{T}$$
+其中 $\mathcal{S}$ 是形状空间。</p>
+<p><strong>可供性（Affordance）理论</strong></p>
+<p>Gibson的可供性概念的数学化：
+$$A(S) = \{(p, n, a) : \text{contact}(p) \wedge \text{normal}(n) \wedge \text{action}(a)\}$$
+可供性场：
+$$\phi_a: \mathcal{S} \rightarrow \mathbb{R}^+$$
+表示位置 $x$ 执行动作 $a$ 的适合度。</p>
+<p><strong>功能基元分解</strong></p>
+<p>将复杂功能分解为基元：
+$$F = \sum_{i=1}^K w_i f_i$$
+其中 $f_i$ 是功能基元（如支撑、包含、连接）。</p>
+<p><strong>交互张量</strong></p>
+<p>三阶张量编码人-物-环境交互：
+$$\mathcal{T}_{ijk} = P(\text{human}_i, \text{object}_j, \text{context}_k)$$
+通过张量分解提取潜在功能模式：
+$$\mathcal{T} = \sum_{r=1}^R \lambda_r \cdot u_r \otimes v_r \otimes w_r$$
+<strong>功能一致性度量</strong></p>
+<p>两个形状的功能相似度：
+$$d_F(S_1, S_2) = \int_{\mathcal{I}} |F(S_1, \xi) - F(S_2, \xi)|^2 \, d\xi$$</p>
+<h3 id="2242">22.4.2 关节运动分析</h3>
+<p><strong>运动学链建模</strong></p>
+<p>关节形状表示为运动学链：
+$$\mathcal{K} = (V, E, \Theta)$$
+其中 $V$ 是部件集，$E$ 是关节连接，$\Theta$ 是关节参数。</p>
+<p><strong>Denavit-Hartenberg参数</strong></p>
+<p>标准化关节描述：
+$$T_i^{i-1} = \begin{bmatrix}
+\cos\theta_i &amp; -\sin\theta_i\cos\alpha_i &amp; \sin\theta_i\sin\alpha_i &amp; a_i\cos\theta_i \\
+\sin\theta_i &amp; \cos\theta_i\cos\alpha_i &amp; -\cos\theta_i\sin\alpha_i &amp; a_i\sin\theta_i \\
+0 &amp; \sin\alpha_i &amp; \cos\alpha_i &amp; d_i \\
+0 &amp; 0 &amp; 0 &amp; 1
+\end{bmatrix}$$
+<strong>运动子空间</strong></p>
+<p>部件 $i$ 的可达空间：
+$$\mathcal{M}_i = \{T(\theta) \cdot p : \theta \in \Theta_{\text{valid}}, p \in P_i\}$$
+<strong>关节类型识别</strong></p>
+<p>通过运动轨迹分析识别关节类型：</p>
+<ul>
+<li>旋转关节：$\text{rank}(\text{cov}(\mathcal{M})) = 2$</li>
+<li>平移关节：$\text{rank}(\text{cov}(\mathcal{M})) = 1$</li>
+<li>球形关节：$\text{rank}(\text{cov}(\mathcal{M})) = 3$</li>
+</ul>
+<p><strong>逆运动学优化</strong></p>
+<p>给定目标配置，求解关节参数：
+$$\theta^* = \arg\min_\theta |f(\theta) - x_{\text{target}}|^2 + \lambda R(\theta)$$
+其中 $R(\theta)$ 是正则项（避免奇异配置）。</p>
+<h3 id="2243">22.4.3 协同分割算法</h3>
+<p><strong>协同分割目标函数</strong></p>
+<p>给定形状集合 $\{S_i\}_{i=1}^N$，寻找一致分割：
+$$\min_{\{L_i\}} \sum_{i=1}^N E_{\text{unary}}(L_i, S_i) + \lambda \sum_{i,j} E_{\text{pair}}(L_i, L_j)$$
+<strong>一元项（Unary Term）</strong></p>
+<p>形状内部的分割质量：
+$$E_{\text{unary}}(L, S) = \sum_{f \in F} \sum_{l \in L} \delta(l_f \neq l) \cdot w_{ff'}$$
+基于：</p>
+<ul>
+<li>凹性：边界应在凹区域</li>
+<li>紧致性：部件应紧凑</li>
+<li>对称性：保持对称结构</li>
+</ul>
+<p><strong>成对项（Pairwise Term）</strong></p>
+<p>跨形状的一致性：
+$$E_{\text{pair}}(L_i, L_j) = -\sum_{p,q} C_{ij}(p,q) \cdot \mathbb{1}[L_i(p) = L_j(q)]$$
+其中 $C_{ij}$ 是对应矩阵。</p>
+<p><strong>谱聚类协同分割</strong></p>
+<p>构建超图 $H = (V, E)$：</p>
+<ul>
+<li>节点：所有形状的所有面片</li>
+<li>超边：连接相似面片</li>
+</ul>
+<p>归一化割：
+$$\text{NCut}(A, B) = \frac{\text{cut}(A,B)}{\text{vol}(A)} + \frac{\text{cut}(A,B)}{\text{vol}(B)}$$
+<strong>深度协同分割</strong></p>
+<p>使用图神经网络：
+$$h_v^{(k+1)} = \sigma\left(W_{\text{self}} h_v^{(k)} + \sum_{u \in N(v)} W_{\text{neigh}} h_u^{(k)}\right)$$
+跨形状注意力：
+$$\alpha_{ij} = \frac{\exp(h_i^T W_Q W_K^T h_j)}{\sum_k \exp(h_i^T W_Q W_K^T h_k)}$$</p>
+<h3 id="2244">22.4.4 层次结构分析</h3>
+<p><strong>层次分解树</strong></p>
+<p>形状的层次表示：
+$$T = (N, E, \phi)$$
+其中 $N$ 是节点（部件），$E$ 是父子关系，$\phi$ 是几何映射。</p>
+<p><strong>自底向上聚类</strong></p>
+<p>凝聚层次聚类：
+$$d(C_i, C_j) = \min_{p \in C_i, q \in C_j} d_{\text{geom}}(p, q) + \lambda d_{\text{sem}}(C_i, C_j)$$
+<strong>自顶向下分割</strong></p>
+<p>递归二分：
+$$(L_{\text{left}}, L_{\text{right}}) = \arg\min_{L} \text{NCut}(L, \bar{L})$$
+停止准则：
+$$\frac{\text{NCut}(L, \bar{L})}{\text{NCut}_{\text{random}}} &gt; \tau$$
+<strong>多分辨率分析</strong></p>
+<p>不同层次的特征：
+$$f^{(l)} = \text{pool}(f^{(l-1)})$$
+池化操作保持几何和拓扑信息。</p>
+<p><strong>语法规则学习</strong></p>
+<p>从层次结构提取生成规则：
+$$R: A \rightarrow BC \quad \text{with probability } p(B,C|A)$$
+使用PCFG（概率上下文无关文法）建模。</p>
+<h3 id="2245">22.4.5 部件关系图模型</h3>
+<p><strong>部件关系图</strong>
+$$G = (V, E, X, R)$$
+其中：</p>
+<ul>
+<li>$V$：部件节点</li>
+<li>$E$：关系边</li>
+<li>$X$：节点特征（几何、外观）</li>
+<li>$R$：边特征（相对位置、连接类型）</li>
+</ul>
+<p><strong>空间关系编码</strong></p>
+<p>相对位置描述子：
+$$r_{ij} = [\Delta p_{ij}, \Delta q_{ij}, \Delta s_{ij}, \theta_{ij}]$$
+包含平移、旋转、缩放、方向。</p>
+<p><strong>图匹配能量</strong>
+$$E(m) = \sum_{i} \psi_i(m_i) + \sum_{(i,j)} \psi_{ij}(m_i, m_j)$$
+其中：</p>
+<ul>
+<li>$\psi_i$：节点匹配代价</li>
+<li>$\psi_{ij}$：边匹配代价</li>
+</ul>
+<p><strong>谱松弛求解</strong></p>
+<p>松弛为特征值问题：
+$$M^* = \arg\max_{M^T M = I} \text{tr}(M^T A M)$$
+其中 $A$ 是亲和矩阵。</p>
+<p><strong>概率图模型</strong></p>
+<p>条件随机场（CRF）：
+$$P(L|S) = \frac{1}{Z} \exp\left(-\sum_i \phi_i(l_i, S) - \sum_{ij} \psi_{ij}(l_i, l_j, S)\right)$$
+推断使用：</p>
+<ul>
+<li>信念传播（BP）</li>
+<li>图割（Graph Cuts）</li>
+<li>平均场近似</li>
+</ul>
+<p><strong>部件组合优化</strong></p>
+<p>给定部件库 $\mathcal{P}$，生成新设计：
+$$S^* = \arg\max_{S \in \text{Comp}(\mathcal{P})} F(S) - \lambda C(S)$$
+其中 $F$ 是功能得分，$C$ 是组装成本。</p>
+<h2 id="225">22.5 图匹配与对应关系</h2>
+<p>形状对应是许多3D打印应用的核心，包括形状变形、纹理传输、统计形状分析等。现代方法结合了谱几何、优化理论和深度学习，实现了鲁棒的密集对应计算。</p>
+<h3 id="2251">22.5.1 形状对应问题建模</h3>
+<p><strong>点对应表示</strong></p>
+<p>对应映射 $\Pi: M \rightarrow N$ 满足：</p>
+<ul>
+<li>双射性（理想情况）：$\Pi$ 是一对一映射</li>
+<li>近等距性：$d_N(\Pi(x), \Pi(y)) \approx d_M(x, y)$</li>
+</ul>
+<p><strong>函数对应表示</strong></p>
+<p>线性算子 $T: L^2(N) \rightarrow L^2(M)$：
+$$T(g)(x) = g(\Pi(x))$$
+满足：
+$$T(g \cdot h) = T(g) \cdot T(h)$$
+<strong>模糊对应</strong></p>
+<p>软对应矩阵 $C \in \mathbb{R}^{n \times m}$：
+$$C_{ij} = P(x_i \leftrightarrow y_j)$$
+约束：
+$$C\mathbf{1} = \mathbf{1}, \quad C^T\mathbf{1} = \mathbf{1}$$
+<strong>等距形变模型</strong></p>
+<p>内在等距：
+$$d_M^{geod}(x, y) = d_N^{geod}(\Pi(x), \Pi(y))$$
+近似等距（$\epsilon$-等距）：
+$$|d_M(x,y) - d_N(\Pi(x), \Pi(y))| \leq \epsilon$$
+<strong>对应质量度量</strong></p>
+<p>测地误差：
+$$e_{geod}(\Pi) = \frac{1}{|M|} \int_M d_N^{geod}(\Pi(x), \Pi^*(x)) \, dx$$
+其中 $\Pi^*$ 是真实对应。</p>
+<h3 id="2252">22.5.2 函数映射框架</h3>
+<p><strong>函数映射定义</strong></p>
+<p>给定基函数 $\{\phi_i^M\}$ 和 $\{\phi_j^N\}$，函数映射矩阵：
+$$C_{ij} = \langle T\phi_j^N, \phi_i^M \rangle$$
+函数传输：
+$$T(f) = \Phi^M C \Phi^{N\dagger} f$$
+<strong>约束构造</strong></p>
+<ol>
+<li>
+<p><strong>描述子保持</strong>：
+$$C A = B$$
+其中 $A, B$ 是描述子矩阵</p>
+</li>
+<li>
+<p><strong>算子交换性</strong>：
+$$C \Delta^N = \Delta^M C$$</p>
+</li>
+<li>
+<p><strong>向量场保持</strong>：
+$$C D_v^N = D_u^M C$$
+其中 $D_v$ 是方向导数算子</p>
+</li>
+</ol>
+<p><strong>优化问题</strong>
+$$\min_C |CA - B|_F^2 + \mu_1 |C\Delta^N - \Delta^M C|_F^2 + \mu_2 |C|_{2,1}$$
+其中 $|C|_{2,1} = \sum_j |C_j|_2$ 促进列稀疏性。</p>
+<p><strong>从函数映射到点对应</strong></p>
+<p>最近邻搜索：
+$$\Pi(x) = \arg\min_{y \in N} |\Phi^M(x) C - \Phi^N(y)|^2$$
+或使用ZoomOut细化：迭代增加基函数数量。</p>
+<h3 id="2253">22.5.3 谱匹配方法</h3>
+<p><strong>谱嵌入匹配</strong></p>
+<p>使用前 $k$ 个特征函数嵌入：
+$$x \mapsto (\phi_1(x), \ldots, \phi_k(x))$$
+匹配通过Procrustes分析：
+$$R^* = \arg\min_{R \in O(k)} |\Phi^M - \Phi^N P R|_F^2$$
+<strong>符号翻转和特征值重复</strong></p>
+<p>处理符号歧义：
+$$\phi_i \sim \pm \phi_i$$
+处理特征值简并：使用特征空间的任意正交变换。</p>
+<p><strong>热核匹配</strong></p>
+<p>基于热核签名的匹配能量：
+$$E(\Pi) = \int_M \int_0^T |h_t^M(x) - h_t^N(\Pi(x))|^2 \, dt \, dx$$
+<strong>持续性匹配</strong></p>
+<p>使用持续同调特征：
+$$\Pi^* = \arg\min_\Pi d_{B}(PD(M), \Pi_*(PD(N)))$$
+其中 $d_B$ 是瓶颈距离，$PD$ 是持续图。</p>
+<h3 id="2254">22.5.4 深度函数映射</h3>
+<p><strong>无监督深度函数映射</strong></p>
+<p>网络架构：
+$$C = f_\theta(\Delta^M, \Delta^N, F^M, F^N)$$
+损失函数：
+$$\mathcal{L} = \mathcal{L}_{desc} + \lambda_1 \mathcal{L}_{comm} + \lambda_2 \mathcal{L}_{ortho}$$
+其中：</p>
+<ul>
+<li>$\mathcal{L}_{desc}$：描述子保持</li>
+<li>$\mathcal{L}_{comm}$：算子交换</li>
+<li>$\mathcal{L}_{ortho} = |C^TC - I|_F^2$：正交性</li>
+</ul>
+<p><strong>几何深度函数映射</strong></p>
+<p>结合几何特征：
+$$F = \text{concat}(HKS, WKS, SHOT, \text{normals})$$
+特征提取网络：
+$$h = \text{DiffusionNet}(M, F)$$
+<strong>注意力机制</strong></p>
+<p>跨形状注意力：
+$$\text{Attention}(Q^M, K^N, V^N) = \text{softmax}\left(\frac{Q^M (K^N)^T}{\sqrt{d}}\right) V^N$$
+<strong>端到端学习</strong></p>
+<p>直接预测点对应：
+$$\Pi = \text{SoftMax}(\Phi^M W \Phi^{N^T})$$
+使用Gumbel-Softmax实现可微采样。</p>
+<h3 id="2255">22.5.5 周期一致性约束</h3>
+<p><strong>双向一致性</strong></p>
+<p>前向-后向一致性：
+$$\Pi_{MN} \circ \Pi_{NM} \approx \text{id}_M$$
+函数映射形式：
+$$C_{MN} C_{NM} \approx I$$
+<strong>多路一致性</strong></p>
+<p>给定形状集合 $\{S_i\}$，周期一致性：
+$$C_{12} C_{23} \cdots C_{n1} \approx I$$
+<strong>一致性正则化</strong></p>
+<p>优化问题：
+$$\min_{\{C_{ij}\}} \sum_{i,j} E(C_{ij}) + \lambda \sum_{\text{cycle}} |C_{\text{cycle}} - I|_F^2$$
+<strong>同步优化</strong></p>
+<p>联合优化所有对应：
+$$\min_{\{C_{ij}\}} \sum_{i,j} |C_{ij} - C_{ij}^{init}|_F^2 \quad \text{s.t.} \quad C_{ij} C_{jk} = C_{ik}$$
+使用交替方向乘子法（ADMM）求解。</p>
+<p><strong>置换同步</strong></p>
+<p>离散版本：寻找置换矩阵 $\{P_{ij}\}$ 满足：
+$$P_{ij} P_{jk} = P_{ik}$$
+谱松弛：
+$$\min_X |X - P \otimes I_d|_F^2 \quad \text{s.t.} \quad X^TX = nI$$</p>
+<h2 id="_1">本章小结</h2>
+<p>本章系统介绍了形状分析与检索的核心数学方法：</p>
+<ol>
+<li>
+<p><strong>形状描述子</strong>：从D2、光场到球谐描述子，提供了多种编码三维几何的方法，强调了不变性和判别性的平衡。</p>
+</li>
+<li>
+<p><strong>谱分析</strong>：Laplace-Beltrami算子的特征分析揭示了形状的内在几何，HKS和WKS提供了多尺度的几何签名。</p>
+</li>
+<li>
+<p><strong>最优传输</strong>：Wasserstein距离为形状比较提供了几何感知的度量，Sinkhorn算法实现了高效计算。</p>
+</li>
+<li>
+<p><strong>功能分析</strong>：从可供性理论到协同分割，展示了语义理解在形状分析中的重要性。</p>
+</li>
+<li>
+<p><strong>对应计算</strong>：函数映射框架统一了连续和离散的对应表示，深度学习方法提升了鲁棒性。</p>
+</li>
+</ol>
+<p>关键数学工具：</p>
+<ul>
+<li>谱理论：$\Delta\phi = \lambda\phi$</li>
+<li>最优传输：$W_p(\mu,\nu) = \inf_\pi \int c \, d\pi$</li>
+<li>函数映射：$T(f) = \Phi^M C \Phi^{N\dagger} f$</li>
+<li>周期一致性：$C_{12}C_{23}C_{31} = I$</li>
+</ul>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<ol>
+<li><strong>球谐展开计算</strong>
+   给定单位球面上的函数 $f(\theta,\phi) = \cos^2\theta$，计算其前3阶球谐系数。</li>
+</ol>
+<p><em>提示</em>：利用 $\cos\theta = Y_1^0$ 和球谐函数的正交性。</p>
+<ol start="2">
+<li><strong>离散Laplacian验证</strong>
+   对于正四面体网格，计算余切权重Laplacian矩阵，验证其特征值满足 $\lambda_0 = 0$。</li>
+</ol>
+<p><em>提示</em>：利用对称性简化计算。</p>
+<ol start="3">
+<li><strong>Wasserstein距离计算</strong>
+   计算一维情况下 $\mu = \delta_0$ 和 $\nu = \frac{1}{2}(\delta_{-1} + \delta_1)$ 的2-Wasserstein距离。</li>
+</ol>
+<p><em>提示</em>：直接构造最优传输计划。</p>
+<ol start="4">
+<li><strong>HKS稳定性</strong>
+   证明对于紧致流形，HKS在 $t \to \infty$ 时收敛到常数。</li>
+</ol>
+<p><em>提示</em>：考虑特征值 $\lambda_0 = 0$ 的贡献。</p>
+<h3 id="_4">挑战题</h3>
+<ol start="5">
+<li><strong>谱同构问题</strong>
+   构造两个非同构的图，使其Laplacian特征值完全相同（同谱异构）。</li>
+</ol>
+<p><em>提示</em>：考虑Sunada构造。</p>
+<ol start="6">
+<li><strong>函数映射的秩</strong>
+   证明：如果两个形状之间存在部分对应（非满射），则函数映射矩阵 $C$ 的秩小于 $\min(m,n)$。</li>
+</ol>
+<p><em>提示</em>：分析零空间的维度。</p>
+<ol start="7">
+<li><strong>Gromov-Wasserstein下界</strong>
+   推导GW距离基于直径的下界：$GW(M,N) \geq \frac{1}{2}|\text{diam}(M) - \text{diam}(N)|$。</li>
+</ol>
+<p><em>提示</em>：考虑最远点对的传输。</p>
+<ol start="8">
+<li><strong>周期一致性的谱特征</strong>
+   设 $C_{12}, C_{23}, C_{31}$ 是三个函数映射矩阵。证明：如果它们满足周期一致性，则乘积 $C_{12}C_{23}C_{31}$ 的特征值都是1。</li>
+</ol>
+<p><em>提示</em>：利用特征值的乘性。</p>
+<details>
+<summary>参考答案</summary>
+<ol>
+<li>
+<p>$c_{00} = \sqrt{\pi/3}$, $c_{20} = 2\sqrt{\pi/45}$，其余为0。</p>
+</li>
+<li>
+<p>对于边长为 $a$ 的正四面体，非对角元素 $L_{ij} = -1/\sqrt{3}$（相邻顶点）。</p>
+</li>
+<li>
+<p>$W_2^2 = 1$（质量均分传输到两点）。</p>
+</li>
+<li>
+<p>当 $t \to \infty$，$h_t(x) \to \phi_0^2 = 1/\text{vol}(M)$。</p>
+</li>
+<li>
+<p>例：两个16顶点的图，度序列相同但不同构。</p>
+</li>
+<li>
+<p>部分对应导致某些基函数无法被表示，降低矩阵秩。</p>
+</li>
+<li>
+<p>使用三角不等式和最优传输的性质。</p>
+</li>
+<li>
+<p>周期一致性意味着 $C_{cycle} = I$，故特征值为1。</p>
+</li>
+</ol>
+</details>
+<h2 id="_5">常见陷阱与错误</h2>
+<h3 id="1">1. 描述子设计陷阱</h3>
+<ul>
+<li><strong>错误</strong>：过度追求不变性，丧失判别能力</li>
+<li><strong>正确</strong>：根据应用场景平衡不变性和判别性</li>
+</ul>
+<h3 id="2">2. 谱计算数值问题</h3>
+<ul>
+<li><strong>错误</strong>：直接计算大规模Laplacian的所有特征值</li>
+<li><strong>正确</strong>：使用迭代方法（Lanczos）计算前 $k$ 个特征值</li>
+</ul>
+<h3 id="3">3. 最优传输正则化</h3>
+<ul>
+<li><strong>错误</strong>：熵正则化参数 $\epsilon$ 选择过小导致数值不稳定</li>
+<li><strong>正确</strong>：使用 $\epsilon$-scaling策略，从大到小退火</li>
+</ul>
+<h3 id="4">4. 函数映射初始化</h3>
+<ul>
+<li><strong>错误</strong>：随机初始化函数映射矩阵</li>
+<li><strong>正确</strong>：使用描述子匹配或ICP提供初始估计</li>
+</ul>
+<h3 id="5">5. 对应评估偏差</h3>
+<ul>
+<li><strong>错误</strong>：仅在训练集形状类别上评估</li>
+<li><strong>正确</strong>：使用跨类别、部分匹配等多样化测试</li>
+</ul>
+<h2 id="_6">最佳实践检查清单</h2>
+<h3 id="_7">形状描述子选择</h3>
+<ul>
+<li>[ ] 分析目标应用的不变性需求</li>
+<li>[ ] 评估计算复杂度vs精度权衡</li>
+<li>[ ] 考虑多尺度/多分辨率描述子融合</li>
+<li>[ ] 验证对噪声和采样密度的鲁棒性</li>
+</ul>
+<h3 id="_8">谱方法实施</h3>
+<ul>
+<li>[ ] 选择合适的Laplacian离散化（余切权重、图Laplacian）</li>
+<li>[ ] 确定所需特征函数数量（通常50-200）</li>
+<li>[ ] 实现数值稳定的特征值求解器</li>
+<li>[ ] 处理特征值重复和符号歧义</li>
+</ul>
+<h3 id="_9">最优传输计算</h3>
+<ul>
+<li>[ ] 根据问题规模选择算法（精确vs近似）</li>
+<li>[ ] 合理设置熵正则化参数</li>
+<li>[ ] 实现GPU加速（如需要）</li>
+<li>[ ] 验证传输计划的合法性（行列和约束）</li>
+</ul>
+<h3 id="_10">对应关系验证</h3>
+<ul>
+<li>[ ] 检查双向一致性</li>
+<li>[ ] 评估测地误差分布</li>
+<li>[ ] 可视化对应结果</li>
+<li>[ ] 测试极端案例（大变形、部分匹配）</li>
+</ul>
+<h3 id="_11">性能优化</h3>
+<ul>
+<li>[ ] 使用空间数据结构加速邻域查询</li>
+<li>[ ] 实现多分辨率/分层策略</li>
+<li>[ ] 考虑并行化和向量化</li>
+<li>[ ] 缓存重复计算的中间结果</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter21.html" class="nav-link prev">← 第21章：深度生成模型</a><a href="./chapter23.html" class="nav-link next">第23章：多材料与4D打印 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

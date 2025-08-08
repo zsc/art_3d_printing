@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第25章：逆向问题与参数估计</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class=""><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class=""><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class=""><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class=""><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class=""><a href="./chapter21.html">第21章：深度生成模型</a></li><li class=""><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class="active"><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="25">第25章：逆向问题与参数估计</h1>
+<p>在3D打印的实际应用中，我们经常面临这样的挑战：如何从观测数据中推断出模型的未知参数？如何在噪声和不确定性存在的情况下做出最优估计？如何评估参数估计的可靠性？本章将系统介绍逆向问题的数学理论和计算方法，包括贝叶斯推断、伴随状态方法、数据同化技术等，这些方法在3D打印的质量控制、过程优化和材料表征中有着广泛应用。</p>
+<h2 id="251-mcmc">25.1 贝叶斯推断与MCMC</h2>
+<h3 id="2511">25.1.1 贝叶斯框架基础</h3>
+<p>在3D打印中，逆向问题可以表述为：给定观测数据 $\mathbf{d}$，推断模型参数 $\boldsymbol{\theta}$。贝叶斯定理提供了统一的框架：</p>
+<p>$$p(\boldsymbol{\theta}|\mathbf{d}) = \frac{p(\mathbf{d}|\boldsymbol{\theta})p(\boldsymbol{\theta})}{p(\mathbf{d})}$$
+其中：</p>
+<ul>
+<li>$p(\boldsymbol{\theta}|\mathbf{d})$：后验分布（posterior）</li>
+<li>$p(\mathbf{d}|\boldsymbol{\theta})$：似然函数（likelihood）</li>
+<li>$p(\boldsymbol{\theta})$：先验分布（prior）</li>
+<li>$p(\mathbf{d})$：边际似然（evidence）</li>
+</ul>
+<h4 id="_1">似然函数构造</h4>
+<p>对于3D打印的测量数据，通常假设高斯噪声模型：
+$$p(\mathbf{d}|\boldsymbol{\theta}) = \frac{1}{(2\pi)^{n/2}|\boldsymbol{\Sigma}|^{1/2}} \exp\left(-\frac{1}{2}(\mathbf{d} - \mathbf{f}(\boldsymbol{\theta}))^T\boldsymbol{\Sigma}^{-1}(\mathbf{d} - \mathbf{f}(\boldsymbol{\theta}))\right)$$
+其中 $\mathbf{f}(\boldsymbol{\theta})$ 是前向模型，$\boldsymbol{\Sigma}$ 是噪声协方差矩阵。</p>
+<h4 id="_2">先验分布选择</h4>
+<p>常用的先验分布类型：</p>
+<ol>
+<li><strong>无信息先验</strong>：$p(\boldsymbol{\theta}) \propto 1$</li>
+<li><strong>共轭先验</strong>：使后验与先验同族</li>
+<li><strong>正则化先验</strong>：
+   - Gaussian: $p(\boldsymbol{\theta}) \propto \exp(-\frac{1}{2}|\boldsymbol{\theta} - \boldsymbol{\mu}_0|_{\boldsymbol{\Gamma}_0}^2)$
+   - Laplace: $p(\boldsymbol{\theta}) \propto \exp(-\lambda|\boldsymbol{\theta}|_1)$</li>
+<li><strong>层次先验</strong>：$p(\boldsymbol{\theta}|\boldsymbol{\alpha}), p(\boldsymbol{\alpha})$</li>
+</ol>
+<h3 id="2512-markov-chain-monte-carlo">25.1.2 Markov Chain Monte Carlo</h3>
+<p>当后验分布难以直接计算时，MCMC提供了采样方法。</p>
+<h4 id="metropolis-hastings">Metropolis-Hastings算法</h4>
+<p>核心思想是构造满足细致平衡条件的Markov链：
+$$p(\boldsymbol{\theta})P(\boldsymbol{\theta} \to \boldsymbol{\theta}') = p(\boldsymbol{\theta}')P(\boldsymbol{\theta}' \to \boldsymbol{\theta})$$
+算法步骤：</p>
+<ol>
+<li>从提议分布 $q(\boldsymbol{\theta}'|\boldsymbol{\theta}^{(k)})$ 生成候选点</li>
+<li>
+<p>计算接受概率：
+$$\alpha = \min\left(1, \frac{p(\boldsymbol{\theta}'|\mathbf{d})q(\boldsymbol{\theta}^{(k)}|\boldsymbol{\theta}')}{p(\boldsymbol{\theta}^{(k)}|\mathbf{d})q(\boldsymbol{\theta}'|\boldsymbol{\theta}^{(k)})}\right)$$</p>
+</li>
+<li>
+<p>以概率 $\alpha$ 接受候选点</p>
+</li>
+</ol>
+<h4 id="hamiltonian-monte-carlo">Hamiltonian Monte Carlo</h4>
+<p>HMC利用哈密顿动力学提高采样效率：
+$$H(\boldsymbol{\theta}, \mathbf{p}) = U(\boldsymbol{\theta}) + K(\mathbf{p})$$
+其中势能 $U(\boldsymbol{\theta}) = -\log p(\boldsymbol{\theta}|\mathbf{d})$，动能 $K(\mathbf{p}) = \frac{1}{2}\mathbf{p}^T\mathbf{M}^{-1}\mathbf{p}$。</p>
+<p>Leapfrog积分器：</p>
+<div class="codehilite"><pre><span></span><code>p_{t+\epsilon/2} = p_t - \frac{\epsilon}{2}\nabla U(\theta_t)
+θ_{t+\epsilon} = θ_t + \epsilon M^{-1}p_{t+\epsilon/2}
+p_{t+\epsilon} = p_{t+\epsilon/2} - \frac{\epsilon}{2}\nabla U(\theta_{t+\epsilon})
+</code></pre></div>
+
+<h4 id="mcmc">自适应MCMC</h4>
+<p>为提高效率，可以自适应调整提议分布：
+$$\boldsymbol{\Sigma}_{k+1} = (1-\beta_k)\boldsymbol{\Sigma}_k + \beta_k(\boldsymbol{\theta}^{(k)} - \bar{\boldsymbol{\theta}}_k)(\boldsymbol{\theta}^{(k)} - \bar{\boldsymbol{\theta}}_k)^T$$
+其中 $\beta_k = k^{-\gamma}$，$\gamma \in (0.5, 1]$。</p>
+<h3 id="2513">25.1.3 变分推断</h3>
+<p>变分推断将后验估计转化为优化问题：
+$$q^*(\boldsymbol{\theta}) = \arg\min_{q \in \mathcal{Q}} \text{KL}(q(\boldsymbol{\theta})||p(\boldsymbol{\theta}|\mathbf{d}))$$
+等价于最大化证据下界（ELBO）：
+$$\mathcal{L}(q) = \mathbb{E}_q[\log p(\mathbf{d}|\boldsymbol{\theta})] - \text{KL}(q(\boldsymbol{\theta})||p(\boldsymbol{\theta}))$$
+ELBO的分解提供了重要洞察：
+$$\log p(\mathbf{d}) = \mathcal{L}(q) + \text{KL}(q(\boldsymbol{\theta})||p(\boldsymbol{\theta}|\mathbf{d}))$$
+由于KL散度非负，ELBO是对数证据的下界。</p>
+<h4 id="_3">平均场近似</h4>
+<p>假设 $q(\boldsymbol{\theta}) = \prod_i q_i(\theta_i)$，得到坐标上升更新：
+$$\log q_i^*(\theta_i) = \mathbb{E}_{q_{-i}}[\log p(\mathbf{d}, \boldsymbol{\theta})] + \text{const}$$
+对于指数族分布，更新具有闭式解：
+$$q_i(\theta_i) \propto \exp\{\mathbb{E}_{q_{-i}}[\eta_i(\boldsymbol{\theta}_{-i})]^T T(\theta_i)\}$$
+其中 $\eta_i$ 是自然参数，$T(\theta_i)$ 是充分统计量。</p>
+<h4 id="_4">结构化变分推断</h4>
+<p>当平均场假设过于严格时，可使用结构化近似：</p>
+<ol>
+<li>
+<p><strong>因子图近似</strong>：保持部分依赖结构
+$$q(\boldsymbol{\theta}) = \prod_{c \in \mathcal{C}} q_c(\boldsymbol{\theta}_c)$$</p>
+</li>
+<li>
+<p><strong>高斯近似</strong>：保持完整协方差
+$$q(\boldsymbol{\theta}) = \mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma})$$</p>
+</li>
+<li>
+<p><strong>混合分布</strong>：捕获多模态
+$$q(\boldsymbol{\theta}) = \sum_{k=1}^K \pi_k q_k(\boldsymbol{\theta})$$</p>
+</li>
+</ol>
+<h4 id="_5">黑盒变分推断</h4>
+<p>使用重参数化技巧：$\boldsymbol{\theta} = g(\boldsymbol{\epsilon}, \boldsymbol{\lambda})$，其中 $\boldsymbol{\epsilon} \sim p(\boldsymbol{\epsilon})$。</p>
+<p>梯度估计：
+$$\nabla_{\boldsymbol{\lambda}}\mathcal{L} = \mathbb{E}_{p(\boldsymbol{\epsilon})}[\nabla_{\boldsymbol{\lambda}}\log p(\mathbf{d}, g(\boldsymbol{\epsilon}, \boldsymbol{\lambda}))]$$
+方差减少技术：</p>
+<ul>
+<li><strong>控制变量</strong>：$\nabla\mathcal{L} - c(\nabla f - \mathbb{E}[\nabla f])$</li>
+<li><strong>Rao-Blackwellization</strong>：利用解析积分</li>
+<li><strong>重要性加权</strong>：使用多个样本</li>
+</ul>
+<h3 id="2514-3d">25.1.4 在3D打印中的应用</h3>
+<h4 id="_6">材料参数估计</h4>
+<p>从打印件的力学测试数据推断材料本构参数：
+$$\mathbf{C} = \mathbb{E}[\mathbf{C}|\mathbf{u}_{\text{obs}}]$$
+其中 $\mathbf{C}$ 是弹性张量，$\mathbf{u}_{\text{obs}}$ 是位移测量。</p>
+<p>具体的贝叶斯框架：</p>
+<ol>
+<li>
+<p><strong>先验分布</strong>：基于材料类型的经验分布
+$$p(E, \nu) = p(E)p(\nu|E)$$
+其中 $E$ 是杨氏模量，$\nu$ 是泊松比</p>
+</li>
+<li>
+<p><strong>似然函数</strong>：考虑测量噪声和模型误差
+$$p(\mathbf{u}_{\text{obs}}|\mathbf{C}) = \mathcal{N}(\mathbf{u}_{\text{FEM}}(\mathbf{C}), \sigma_{\text{obs}}^2\mathbf{I} + \mathbf{\Sigma}_{\text{model}})$$</p>
+</li>
+<li>
+<p><strong>后验采样</strong>：使用自适应MCMC或变分推断</p>
+</li>
+</ol>
+<h4 id="_7">热历史重构</h4>
+<p>从温度测量推断热源分布：
+$$q(\mathbf{x}, t) = \arg\min_q |\mathbf{T}_{\text{obs}} - \mathbf{T}(q)|^2 + \lambda R(q)$$
+热传导逆问题的特殊挑战：</p>
+<ul>
+<li><strong>不适定性</strong>：高频分量被指数衰减</li>
+<li><strong>时间反向</strong>：需要稳定化技术</li>
+<li><strong>多尺度特征</strong>：激光斑点vs整体温度场</li>
+</ul>
+<p>正则化策略：
+$$R(q) = \int_\Omega \int_0^T \left[\alpha_1|\nabla q|^2 + \alpha_2\left|\frac{\partial q}{\partial t}\right|^2\right] dx\,dt$$</p>
+<h4 id="_8">几何偏差校正</h4>
+<p>从扫描数据估计系统误差参数：
+$$p(\boldsymbol{\delta}|\mathbf{P}_{\text{scan}}) \propto p(\mathbf{P}_{\text{scan}}|\mathbf{P}_{\text{CAD}} + \boldsymbol{\delta})p(\boldsymbol{\delta})$$
+误差模型分解：</p>
+<ol>
+<li>
+<p><strong>系统误差</strong>：机器标定偏差
+   - 轴向缩放：$\delta_x, \delta_y, \delta_z$
+   - 正交性误差：$\gamma_{xy}, \gamma_{xz}, \gamma_{yz}$
+   - 零点偏移：$\Delta x_0, \Delta y_0, \Delta z_0$</p>
+</li>
+<li>
+<p><strong>随机误差</strong>：过程变异性
+   - 振动引起的位置噪声
+   - 材料收缩的随机性
+   - 温度波动的影响</p>
+</li>
+<li>
+<p><strong>形状相关误差</strong>：
+   - 悬垂结构的下垂
+   - 尖角的圆化
+   - 薄壁的变形</p>
+</li>
+</ol>
+<h4 id="_9">过程参数优化</h4>
+<p>使用贝叶斯优化调整打印参数：</p>
+<p>目标函数（多目标）：
+$$f(\boldsymbol{\theta}) = w_1 \cdot \text{精度} + w_2 \cdot \text{强度} - w_3 \cdot \text{时间}$$
+参数空间：</p>
+<ul>
+<li>层高：$h \in [0.1, 0.4]$ mm</li>
+<li>打印速度：$v \in [20, 100]$ mm/s</li>
+<li>挤出温度：$T \in [190, 230]$ °C</li>
+<li>填充密度：$\rho \in [20, 100]$ %</li>
+</ul>
+<h2 id="252">25.2 伴随状态方法</h2>
+<h3 id="2521">25.2.1 连续伴随方程</h3>
+<p>考虑由PDE约束的优化问题：
+$$\min_{\boldsymbol{\theta}} J(\mathbf{u}, \boldsymbol{\theta}) \quad \text{s.t.} \quad \mathcal{L}(\mathbf{u}, \boldsymbol{\theta}) = \mathbf{f}$$
+引入Lagrangian：
+$$\mathcal{L} = J(\mathbf{u}, \boldsymbol{\theta}) + \langle \boldsymbol{\lambda}, \mathcal{L}(\mathbf{u}, \boldsymbol{\theta}) - \mathbf{f} \rangle$$
+伴随方程：
+$$\mathcal{L}_{\mathbf{u}}^*\boldsymbol{\lambda} = -J_{\mathbf{u}}$$
+梯度计算：
+$$\frac{dJ}{d\boldsymbol{\theta}} = J_{\boldsymbol{\theta}} + \langle \boldsymbol{\lambda}, \mathcal{L}_{\boldsymbol{\theta}} \rangle$$</p>
+<h3 id="2522">25.2.2 离散伴随方法</h3>
+<p>对于离散系统 $\mathbf{K}(\boldsymbol{\theta})\mathbf{u} = \mathbf{f}$：</p>
+<ol>
+<li>求解原始问题：$\mathbf{u} = \mathbf{K}^{-1}\mathbf{f}$</li>
+<li>求解伴随问题：$\mathbf{K}^T\boldsymbol{\lambda} = -\nabla_{\mathbf{u}}J$</li>
+<li>计算梯度：
+$$\frac{dJ}{d\theta_i} = \frac{\partial J}{\partial \theta_i} - \boldsymbol{\lambda}^T\frac{\partial \mathbf{K}}{\partial \theta_i}\mathbf{u}$$</li>
+</ol>
+<h3 id="2523">25.2.3 时间依赖问题</h3>
+<p>对于瞬态问题：
+$$\mathbf{M}\ddot{\mathbf{u}} + \mathbf{C}\dot{\mathbf{u}} + \mathbf{K}\mathbf{u} = \mathbf{f}(t)$$
+伴随方程需要反向时间积分：
+$$\mathbf{M}\ddot{\boldsymbol{\lambda}} - \mathbf{C}\dot{\boldsymbol{\lambda}} + \mathbf{K}\boldsymbol{\lambda} = -\nabla_{\mathbf{u}}J$$
+终止条件：$\boldsymbol{\lambda}(T) = \mathbf{0}$，$\dot{\boldsymbol{\lambda}}(T) = \mathbf{0}$</p>
+<h4 id="_10">离散时间积分</h4>
+<p>使用Newmark-$\beta$方法离散化：
+$$\mathbf{u}_{n+1} = \mathbf{u}_n + \Delta t\dot{\mathbf{u}}_n + \Delta t^2[(\frac{1}{2}-\beta)\ddot{\mathbf{u}}_n + \beta\ddot{\mathbf{u}}_{n+1}]$$
+$$\dot{\mathbf{u}}_{n+1} = \dot{\mathbf{u}}_n + \Delta t[(1-\gamma)\ddot{\mathbf{u}}_n + \gamma\ddot{\mathbf{u}}_{n+1}]$$
+对于无条件稳定：$\gamma \geq \frac{1}{2}$，$\beta \geq \frac{1}{4}(\gamma + \frac{1}{2})^2$</p>
+<p>伴随变量的反向积分保持相同的时间积分格式，确保离散一致性。</p>
+<h3 id="2524">25.2.4 检查点技术</h3>
+<p>为减少存储需求，使用检查点策略：</p>
+<p>最优检查点数：$s = \sqrt{2nT/C_s}$</p>
+<p>其中 $n$ 是状态维度，$T$ 是时间步数，$C_s$ 是存储/计算比。</p>
+<h4 id="_11">分级检查点</h4>
+<p>多级检查点策略：</p>
+<ol>
+<li><strong>一级检查点</strong>：每 $\Delta t_1$ 步存储完整状态</li>
+<li><strong>二级检查点</strong>：每 $\Delta t_2 &lt; \Delta t_1$ 步存储压缩状态</li>
+<li><strong>重计算</strong>：从最近检查点恢复</li>
+</ol>
+<p>内存需求：$M = O(\sqrt{T})$ vs 朴素方法的 $O(T)$</p>
+<h4 id="_12">滚动检查点</h4>
+<p>动态管理检查点缓冲区：</p>
+<div class="codehilite"><pre><span></span><code>缓冲区大小 B，时间窗口 W
+当前进到时刻 t：
+  如果 t mod W == 0：
+    存储检查点到循环缓冲区
+  反向传播时：
+    从最近的检查点重构
+</code></pre></div>
+
+<h3 id="2525-vs">25.2.5 自动微分vs伴随方法</h3>
+<ul>
+<li><strong>前向模式AD</strong>：计算 $\nabla_{\boldsymbol{\theta}}\mathbf{u}$，复杂度 $O(n_\theta)$</li>
+<li><strong>反向模式AD</strong>：计算 $\nabla_{\boldsymbol{\theta}}J$，复杂度 $O(n_J)$</li>
+<li><strong>伴随方法</strong>：利用问题结构，复杂度 $O(1)$</li>
+</ul>
+<h4 id="_13">混合策略</h4>
+<p>结合AD和伴随方法的优势：</p>
+<ol>
+<li><strong>外层伴随</strong>：处理PDE约束</li>
+<li><strong>内层AD</strong>：处理复杂本构关系</li>
+<li><strong>符号微分</strong>：简单解析表达式</li>
+</ol>
+<p>实际考虑：</p>
+<ul>
+<li>伴随方法需要存储或重计算前向解</li>
+<li>AD提供精确导数但可能内存密集</li>
+<li>符号微分适合小规模表达式</li>
+</ul>
+<h3 id="2526-3d">25.2.6 3D打印中的伴随应用</h3>
+<h4 id="_14">形状优化</h4>
+<p>最小化应力集中：
+$$\min_{\Omega} \max_{\mathbf{x} \in \Omega} \sigma_{\text{von Mises}}(\mathbf{x})$$
+形状导数通过伴随计算：
+$$\frac{dJ}{d\Omega} = \int_{\partial\Omega} (\boldsymbol{\lambda} \cdot \mathbf{t} - \mathbf{u} \cdot \nabla\boldsymbol{\lambda} \cdot \mathbf{n})\,ds$$</p>
+<h4 id="_15">支撑结构优化</h4>
+<p>最小化支撑材料：
+$$\min_{\mathbf{s}} \int_{\Omega_s} dV \quad \text{s.t.} \quad \delta_{\max} &lt; \delta_{\text{允许}}$$
+伴随方法高效计算支撑密度对变形的敏感度。</p>
+<h4 id="_16">路径规划优化</h4>
+<p>最小化打印时间和质量的权衡：
+$$J = \int_0^T [\alpha |\mathbf{v}(t)|^2 + \beta |\dot{\mathbf{v}}(t)|^2]\,dt + \gamma Q(\mathbf{u}_T)$$
+其中 $\mathbf{v}(t)$ 是喷头速度，$Q$ 是质量指标。</p>
+<h3 id="2527">25.2.7 数值实现考虑</h3>
+<h4 id="_17">梯度验证</h4>
+<p>使用Taylor展开验证伴随梯度：
+$$\frac{J(\boldsymbol{\theta} + h\mathbf{d}) - J(\boldsymbol{\theta})}{h} = \nabla J \cdot \mathbf{d} + O(h)$$
+复步法提高精度：
+$$\nabla J \cdot \mathbf{d} \approx \frac{\text{Im}[J(\boldsymbol{\theta} + ih\mathbf{d})]}{h} + O(h^2)$$</p>
+<h4 id="_18">伴随一致性</h4>
+<p>确保离散伴随与连续伴随的一致性：</p>
+<ol>
+<li><strong>先离散后伴随</strong>：保证梯度精确但可能非物理</li>
+<li><strong>先伴随后离散</strong>：物理意义明确但可能有离散误差</li>
+</ol>
+<p>实践中通常选择先离散后伴随，确保优化收敛性。</p>
+<h2 id="253-kalman">25.3 Kalman滤波与数据同化</h2>
+<h3 id="2531-kalman">25.3.1 线性Kalman滤波</h3>
+<p>状态空间模型：
+$$\mathbf{x}_{k+1} = \mathbf{F}_k\mathbf{x}_k + \mathbf{B}_k\mathbf{u}_k + \mathbf{w}_k$$
+$$\mathbf{z}_k = \mathbf{H}_k\mathbf{x}_k + \mathbf{v}_k$$
+其中 $\mathbf{w}_k \sim \mathcal{N}(\mathbf{0}, \mathbf{Q}_k)$，$\mathbf{v}_k \sim \mathcal{N}(\mathbf{0}, \mathbf{R}_k)$。</p>
+<p>预测步：
+$$\hat{\mathbf{x}}_{k|k-1} = \mathbf{F}_k\hat{\mathbf{x}}_{k-1|k-1} + \mathbf{B}_k\mathbf{u}_k$$
+$$\mathbf{P}_{k|k-1} = \mathbf{F}_k\mathbf{P}_{k-1|k-1}\mathbf{F}_k^T + \mathbf{Q}_k$$
+更新步：
+$$\mathbf{K}_k = \mathbf{P}_{k|k-1}\mathbf{H}_k^T(\mathbf{H}_k\mathbf{P}_{k|k-1}\mathbf{H}_k^T + \mathbf{R}_k)^{-1}$$
+$$\hat{\mathbf{x}}_{k|k} = \hat{\mathbf{x}}_{k|k-1} + \mathbf{K}_k(\mathbf{z}_k - \mathbf{H}_k\hat{\mathbf{x}}_{k|k-1})$$
+$$\mathbf{P}_{k|k} = (\mathbf{I} - \mathbf{K}_k\mathbf{H}_k)\mathbf{P}_{k|k-1}$$</p>
+<h3 id="2532-kalman">25.3.2 扩展Kalman滤波</h3>
+<p>对于非线性系统：
+$$\mathbf{x}_{k+1} = f(\mathbf{x}_k, \mathbf{u}_k) + \mathbf{w}_k$$
+$$\mathbf{z}_k = h(\mathbf{x}_k) + \mathbf{v}_k$$
+线性化：
+$$\mathbf{F}_k = \frac{\partial f}{\partial \mathbf{x}}\Big|_{\hat{\mathbf{x}}_{k|k}}$$
+$$\mathbf{H}_k = \frac{\partial h}{\partial \mathbf{x}}\Big|_{\hat{\mathbf{x}}_{k|k-1}}$$</p>
+<h3 id="2533-kalman">25.3.3 无迹Kalman滤波</h3>
+<p>使用sigma点捕获非线性：</p>
+<p>Sigma点生成：
+$$\mathcal{X}_0 = \hat{\mathbf{x}}$$
+$$\mathcal{X}_i = \hat{\mathbf{x}} + \sqrt{(n+\lambda)\mathbf{P}}_i, \quad i=1,\ldots,n$$
+$$\mathcal{X}_i = \hat{\mathbf{x}} - \sqrt{(n+\lambda)\mathbf{P}}_{i-n}, \quad i=n+1,\ldots,2n$$
+权重计算：
+$$W_0^{(m)} = \lambda/(n+\lambda)$$
+$$W_0^{(c)} = \lambda/(n+\lambda) + (1-\alpha^2+\beta)$$
+$$W_i^{(m)} = W_i^{(c)} = 1/[2(n+\lambda)], \quad i=1,\ldots,2n$$</p>
+<h3 id="2534">25.3.4 粒子滤波</h3>
+<p>使用Monte Carlo方法近似后验：
+$$p(\mathbf{x}_k|\mathbf{z}_{1:k}) \approx \sum_{i=1}^{N_p} w_k^{(i)}\delta(\mathbf{x}_k - \mathbf{x}_k^{(i)})$$
+重要性采样：
+$$w_k^{(i)} \propto w_{k-1}^{(i)} \frac{p(\mathbf{z}_k|\mathbf{x}_k^{(i)})p(\mathbf{x}_k^{(i)}|\mathbf{x}_{k-1}^{(i)})}{q(\mathbf{x}_k^{(i)}|\mathbf{x}_{k-1}^{(i)}, \mathbf{z}_k)}$$
+重采样策略：</p>
+<ul>
+<li>系统重采样</li>
+<li>分层重采样</li>
+<li>残差重采样</li>
+</ul>
+<h3 id="2535-kalman">25.3.5 集合Kalman滤波</h3>
+<p>使用集合近似协方差：
+$$\mathbf{P} \approx \frac{1}{N_e-1}\sum_{i=1}^{N_e}(\mathbf{x}^{(i)} - \bar{\mathbf{x}})(\mathbf{x}^{(i)} - \bar{\mathbf{x}})^T$$
+集合更新：
+$$\mathbf{x}_a^{(i)} = \mathbf{x}_f^{(i)} + \mathbf{K}(\mathbf{z} + \boldsymbol{\epsilon}^{(i)} - \mathbf{H}\mathbf{x}_f^{(i)})$$
+其中 $\boldsymbol{\epsilon}^{(i)} \sim \mathcal{N}(\mathbf{0}, \mathbf{R})$ 是扰动。</p>
+<h3 id="2536">25.3.6 变分数据同化</h3>
+<p>4D-Var问题：
+$$\min_{\mathbf{x}_0} J(\mathbf{x}_0) = \frac{1}{2}|\mathbf{x}_0 - \mathbf{x}_b|_{\mathbf{B}}^2 + \frac{1}{2}\sum_{k=0}^{N}|\mathbf{z}_k - \mathbf{H}_k\mathbf{x}_k|_{\mathbf{R}_k}^2$$
+约束：$\mathbf{x}_{k+1} = \mathcal{M}_k(\mathbf{x}_k)$</p>
+<h4 id="_19">增量形式</h4>
+<p>线性化于背景场：
+$$\delta\mathbf{x}_0 = -[\mathbf{B}^{-1} + \sum_{k}\mathbf{M}_k^T\mathbf{H}_k^T\mathbf{R}_k^{-1}\mathbf{H}_k\mathbf{M}_k]^{-1}\nabla J$$
+其中 $\mathbf{M}_k = \frac{\partial\mathcal{M}_k}{\partial\mathbf{x}}\Big|_{\mathbf{x}_b}$ 是切线性模型。</p>
+<h4 id="3d-var-vs-4d-var">3D-Var vs 4D-Var</h4>
+<p><strong>3D-Var</strong>：静态同化</p>
+<ul>
+<li>仅使用当前时刻观测</li>
+<li>计算效率高</li>
+<li>适合稳态问题</li>
+</ul>
+<p><strong>4D-Var</strong>：动态同化</p>
+<ul>
+<li>使用时间窗口内所有观测</li>
+<li>需要伴随模型</li>
+<li>适合非线性强系统</li>
+</ul>
+<h4 id="4d-var">弱约束4D-Var</h4>
+<p>允许模型误差：
+$$J = \frac{1}{2}|\mathbf{x}_0 - \mathbf{x}_b|_{\mathbf{B}}^2 + \frac{1}{2}\sum_{k}\left[|\mathbf{z}_k - \mathbf{H}_k\mathbf{x}_k|_{\mathbf{R}_k}^2 + |\boldsymbol{\eta}_k|_{\mathbf{Q}_k}^2\right]$$
+其中 $\mathbf{x}_{k+1} = \mathcal{M}_k(\mathbf{x}_k) + \boldsymbol{\eta}_k$ 包含模型误差。</p>
+<h3 id="2537">25.3.7 混合同化方法</h3>
+<h4 id="enkf-4d-var">EnKF-4D-Var混合</h4>
+<p>结合集合协方差和变分优化：
+$$\mathbf{B} = \alpha\mathbf{B}_{\text{clim}} + (1-\alpha)\mathbf{B}_{\text{ens}}$$
+其中：</p>
+<ul>
+<li>$\mathbf{B}_{\text{clim}}$：气候学协方差</li>
+<li>$\mathbf{B}_{\text{ens}}$：集合协方差</li>
+<li>$\alpha$：混合系数</li>
+</ul>
+<h4 id="_20">局地化</h4>
+<p>处理高维系统的虚假相关：
+$$\mathbf{B}_{\text{loc}} = \mathbf{B} \circ \mathbf{C}$$
+其中 $\mathbf{C}$ 是局地化矩阵：
+$$C_{ij} = \exp\left(-\frac{d_{ij}^2}{2L^2}\right)$$
+$d_{ij}$ 是空间距离，$L$ 是局地化半径。</p>
+<h3 id="2538-3d">25.3.8 在3D打印中的应用</h3>
+<h4 id="_21">实时质量监控</h4>
+<p>融合多传感器数据：</p>
+<ul>
+<li>红外相机：温度场 $T(\mathbf{x}, t)$</li>
+<li>视觉相机：几何形状 $\mathbf{S}(t)$</li>
+<li>力传感器：挤出力 $F(t)$</li>
+</ul>
+<p>状态空间模型：
+$$\mathbf{x} = [T, \dot{T}, h, v, \rho]^T$$
+其中 $h$ 是层高，$v$ 是打印速度，$\rho$ 是填充密度。</p>
+<h4 id="_22">缺陷检测与预测</h4>
+<p>使用粒子滤波检测异常：
+$$p(\text{缺陷}|\mathbf{z}_{1:k}) = \sum_{i=1}^{N_p} w_k^{(i)} \mathbb{I}[\mathbf{x}_k^{(i)} \in \mathcal{D}]$$
+其中 $\mathcal{D}$ 是缺陷状态空间。</p>
+<p>预测模型更新：
+$$\mathbf{x}_{k+1} = f(\mathbf{x}_k, \mathbf{u}_k) + \mathbf{w}_k$$
+其中 $f$ 包含：</p>
+<ul>
+<li>热传导模型</li>
+<li>材料流动模型  </li>
+<li>固化动力学</li>
+</ul>
+<h4 id="_23">自适应过程控制</h4>
+<p>基于状态估计的反馈控制：
+$$\mathbf{u}_{k+1} = \mathbf{K}_{\text{ctrl}}(\mathbf{x}_{\text{ref}} - \hat{\mathbf{x}}_{k|k})$$
+控制增益设计：</p>
+<ul>
+<li>LQR：线性二次型调节器</li>
+<li>MPC：模型预测控制</li>
+<li>鲁棒H∞：处理不确定性</li>
+</ul>
+<h2 id="254">25.4 参数辨识与系统识别</h2>
+<h3 id="2541">25.4.1 系统识别框架</h3>
+<p>系统识别的核心问题是从输入输出数据中确定系统模型：
+$$\mathcal{M}: \mathbf{u}(t) \mapsto \mathbf{y}(t)$$
+主要步骤：</p>
+<ol>
+<li>实验设计与数据采集</li>
+<li>模型结构选择</li>
+<li>参数估计</li>
+<li>模型验证</li>
+</ol>
+<h3 id="2542">25.4.2 频域识别方法</h3>
+<h4 id="_24">传递函数估计</h4>
+<p>对于线性时不变系统：
+$$G(s) = \frac{Y(s)}{U(s)} = \frac{b_ms^m + b_{m-1}s^{m-1} + \cdots + b_0}{s^n + a_{n-1}s^{n-1} + \cdots + a_0}$$
+频率响应函数估计：
+$$\hat{G}(j\omega) = \frac{S_{yu}(j\omega)}{S_{uu}(j\omega)}$$
+其中 $S_{yu}$ 是互谱密度，$S_{uu}$ 是自谱密度。</p>
+<h4 id="_25">子空间方法</h4>
+<p>状态空间模型：
+$$\mathbf{x}_{k+1} = \mathbf{A}\mathbf{x}_k + \mathbf{B}\mathbf{u}_k + \mathbf{w}_k$$
+$$\mathbf{y}_k = \mathbf{C}\mathbf{x}_k + \mathbf{D}\mathbf{u}_k + \mathbf{v}_k$$
+构造Hankel矩阵：
+$$\mathbf{H} = \begin{bmatrix}
+\mathbf{y}_0 &amp; \mathbf{y}_1 &amp; \cdots &amp; \mathbf{y}_{j-1} \\
+\mathbf{y}_1 &amp; \mathbf{y}_2 &amp; \cdots &amp; \mathbf{y}_j \\
+\vdots &amp; \vdots &amp; \ddots &amp; \vdots \\
+\mathbf{y}_{i-1} &amp; \mathbf{y}_i &amp; \cdots &amp; \mathbf{y}_{i+j-2}
+\end{bmatrix}$$
+通过SVD分解：$\mathbf{H} = \mathbf{U}\boldsymbol{\Sigma}\mathbf{V}^T$，估计系统阶数和状态序列。</p>
+<h3 id="2543">25.4.3 最小二乘估计</h3>
+<h4 id="_26">线性最小二乘</h4>
+<p>对于线性参数化模型 $\mathbf{y} = \boldsymbol{\Phi}\boldsymbol{\theta} + \mathbf{e}$：
+$$\hat{\boldsymbol{\theta}} = (\boldsymbol{\Phi}^T\boldsymbol{\Phi})^{-1}\boldsymbol{\Phi}^T\mathbf{y}$$
+协方差矩阵：
+$$\text{Cov}(\hat{\boldsymbol{\theta}}) = \sigma^2(\boldsymbol{\Phi}^T\boldsymbol{\Phi})^{-1}$$</p>
+<h4 id="_27">递归最小二乘</h4>
+<p>在线更新参数估计：
+$$\hat{\boldsymbol{\theta}}_{k+1} = \hat{\boldsymbol{\theta}}_k + \mathbf{K}_{k+1}(\mathbf{y}_{k+1} - \boldsymbol{\phi}_{k+1}^T\hat{\boldsymbol{\theta}}_k)$$
+增益矩阵：
+$$\mathbf{K}_{k+1} = \frac{\mathbf{P}_k\boldsymbol{\phi}_{k+1}}{1 + \boldsymbol{\phi}_{k+1}^T\mathbf{P}_k\boldsymbol{\phi}_{k+1}}$$
+协方差更新：
+$$\mathbf{P}_{k+1} = (\mathbf{I} - \mathbf{K}_{k+1}\boldsymbol{\phi}_{k+1}^T)\mathbf{P}_k$$</p>
+<h4 id="_28">总体最小二乘</h4>
+<p>当输入和输出都有噪声时：
+$$\min_{\boldsymbol{\theta}, \Delta\mathbf{X}, \Delta\mathbf{y}} |[\Delta\mathbf{X}, \Delta\mathbf{y}]|_F^2$$
+$$\text{s.t.} \quad (\mathbf{X} + \Delta\mathbf{X})\boldsymbol{\theta} = \mathbf{y} + \Delta\mathbf{y}$$
+解通过SVD获得：$[\mathbf{X}, \mathbf{y}] = \mathbf{U}\boldsymbol{\Sigma}\mathbf{V}^T$。</p>
+<h3 id="2544">25.4.4 最大似然估计</h3>
+<p>对于一般非线性模型，最大化对数似然：
+$$\hat{\boldsymbol{\theta}} = \arg\max_{\boldsymbol{\theta}} \sum_{k=1}^N \log p(\mathbf{y}_k|\mathbf{y}_{1:k-1}, \mathbf{u}_{1:k}, \boldsymbol{\theta})$$</p>
+<h4 id="_29">期望最大化算法</h4>
+<p>对于含隐变量的模型：</p>
+<p>E步：计算期望对数似然
+$$Q(\boldsymbol{\theta}|\boldsymbol{\theta}^{(t)}) = \mathbb{E}_{\mathbf{z}|\mathbf{y},\boldsymbol{\theta}^{(t)}}[\log p(\mathbf{y}, \mathbf{z}|\boldsymbol{\theta})]$$
+M步：最大化
+$$\boldsymbol{\theta}^{(t+1)} = \arg\max_{\boldsymbol{\theta}} Q(\boldsymbol{\theta}|\boldsymbol{\theta}^{(t)})$$</p>
+<h3 id="2545">25.4.5 稀疏识别</h3>
+<h4 id="lasso">LASSO正则化</h4>
+<p>$$\hat{\boldsymbol{\theta}} = \arg\min_{\boldsymbol{\theta}} |\mathbf{y} - \boldsymbol{\Phi}\boldsymbol{\theta}|_2^2 + \lambda|\boldsymbol{\theta}|_1$$
+通过坐标下降或近端梯度法求解。</p>
+<h4 id="_30">稀疏贝叶斯学习</h4>
+<p>引入分层先验：
+$$p(\theta_i|\alpha_i) = \mathcal{N}(0, \alpha_i^{-1})$$
+$$p(\alpha_i) = \text{Gamma}(a, b)$$
+通过迭代更新实现自动相关性确定（ARD）。</p>
+<h3 id="2546">25.4.6 非线性系统识别</h3>
+<h4 id="_31">神经网络方法</h4>
+<p>使用RNN或LSTM建模动态系统：
+$$\mathbf{h}_{k+1} = f_{\text{RNN}}(\mathbf{h}_k, \mathbf{u}_k; \boldsymbol{\theta})$$
+$$\mathbf{y}_k = g(\mathbf{h}_k; \boldsymbol{\phi})$$</p>
+<h4 id="_32">高斯过程识别</h4>
+<p>建模为高斯过程：
+$$f(\mathbf{x}) \sim \mathcal{GP}(m(\mathbf{x}), k(\mathbf{x}, \mathbf{x}'))$$
+核函数选择：</p>
+<ul>
+<li>RBF核：$k(\mathbf{x}, \mathbf{x}') = \sigma^2\exp(-\frac{|\mathbf{x}-\mathbf{x}'|^2}{2l^2})$</li>
+<li>Matérn核：提供可调平滑度</li>
+</ul>
+<h3 id="2547-3d">25.4.7 在3D打印中的应用</h3>
+<h4 id="_33">热模型参数识别</h4>
+<p>识别热传导系数和对流系数：
+$$\rho c_p\frac{\partial T}{\partial t} = \nabla \cdot (k\nabla T) + Q$$
+参数化模型：</p>
+<ol>
+<li>
+<p><strong>温度依赖性</strong>：
+$$k(T) = k_0(1 + \alpha_k(T - T_0))$$</p>
+</li>
+<li>
+<p><strong>各向异性</strong>：
+$$\mathbf{k} = \text{diag}(k_x, k_y, k_z)$$
+其中 $k_z &lt; k_x \approx k_y$（层间结合较弱）</p>
+</li>
+<li>
+<p><strong>边界条件</strong>：
+$$-k\nabla T \cdot \mathbf{n} = h(T - T_\infty) + \epsilon\sigma(T^4 - T_\infty^4)$$
+识别参数：$\boldsymbol{\theta} = [k_0, \alpha_k, k_x/k_z, h, \epsilon]^T$</p>
+</li>
+</ol>
+<p>实验设计：</p>
+<ul>
+<li>使用红外热像仪捕获全场温度</li>
+<li>在不同打印速度下测试</li>
+<li>包含加热和冷却阶段</li>
+</ul>
+<h4 id="_34">材料本构参数</h4>
+<p>从拉伸试验识别弹塑性参数：
+$$\boldsymbol{\sigma} = \mathbf{C}^e(\boldsymbol{\epsilon} - \boldsymbol{\epsilon}^p)$$
+<strong>各向异性模型</strong>（正交各向异性）：
+$$\mathbf{C}^e = \begin{bmatrix}
+E_1/(1-\nu_{23}\nu_{32}) &amp; E_1\nu_{21}/(1-\nu_{23}\nu_{32}) &amp; E_1\nu_{31}/(1-\nu_{23}\nu_{32}) &amp; 0 &amp; 0 &amp; 0 \\
+\text{sym} &amp; E_2/(1-\nu_{13}\nu_{31}) &amp; E_2\nu_{32}/(1-\nu_{13}\nu_{31}) &amp; 0 &amp; 0 &amp; 0 \\
+ &amp; &amp; E_3/(1-\nu_{12}\nu_{21}) &amp; 0 &amp; 0 &amp; 0 \\
+ &amp; &amp; &amp; G_{12} &amp; 0 &amp; 0 \\
+ &amp; &amp; &amp; &amp; G_{23} &amp; 0 \\
+ &amp; &amp; &amp; &amp; &amp; G_{13}
+\end{bmatrix}$$
+<strong>塑性模型</strong>：Hill屈服准则
+$$f = \sqrt{\boldsymbol{\sigma}^T\mathbf{M}\boldsymbol{\sigma}} - \sigma_y(\bar{\epsilon}^p)$$
+其中 $\mathbf{M}$ 描述各向异性屈服，$\sigma_y(\bar{\epsilon}^p)$ 是硬化曲线。</p>
+<p><strong>粘弹性效应</strong>：
+$$\boldsymbol{\sigma}(t) = \int_0^t \mathbf{C}(t-\tau)\frac{d\boldsymbol{\epsilon}}{d\tau}d\tau$$
+松弛模量：$\mathbf{C}(t) = \mathbf{C}_\infty + \sum_i \mathbf{C}_i e^{-t/\tau_i}$</p>
+<h4 id="_35">打印机运动学标定</h4>
+<p>识别几何误差参数：
+$$\mathbf{p}_{\text{actual}} = \mathbf{f}(\mathbf{q}, \boldsymbol{\delta})$$
+<strong>误差模型</strong>（以笛卡尔机器人为例）：</p>
+<ol>
+<li>
+<p><strong>轴向误差</strong>：
+   - 传动比误差：$\delta_r$
+   - 反向间隙：$b$
+   - 螺距误差：$\delta_p$</p>
+</li>
+<li>
+<p><strong>热误差</strong>：
+$$\Delta L = L_0\alpha(T - T_{\text{ref}})$$</p>
+</li>
+<li>
+<p><strong>动态误差</strong>：
+   - 伺服延迟：$\tau_s$
+   - 机械柔性：$k_{\text{flex}}$</p>
+</li>
+</ol>
+<p><strong>标定方法</strong>：</p>
+<ol>
+<li>激光干涉仪测量</li>
+<li>标准件打印与测量</li>
+<li>循环识别：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>重复直到收敛：
+
+  1. 打印标定图案
+  2. 3D扫描测量
+  3. 参数识别（最小二乘）
+  4. 更新补偿模型
+</code></pre></div>
+
+<h4 id="_36">挤出模型识别</h4>
+<p>非牛顿流体模型：
+$$\eta = K\dot{\gamma}^{n-1}$$
+其中：</p>
+<ul>
+<li>$\eta$：表观粘度</li>
+<li>$K$：稠度系数</li>
+<li>$\dot{\gamma}$：剪切速率</li>
+<li>$n$：流动指数（$n &lt; 1$ 为剪切变稀）</li>
+</ul>
+<p>挤出流量模型：
+$$Q = \frac{\pi R^3 \Delta P}{8L\eta_{\text{eff}}} \cdot f(n)$$
+其中 $f(n) = \frac{3n+1}{4n}$ 是Rabinowitsch修正。</p>
+<p>从挤出压力和流量数据识别 $K, n$。</p>
+<h2 id="255">25.5 模型选择与交叉验证</h2>
+<h3 id="2551">25.5.1 模型选择准则</h3>
+<h4 id="akaikeaic">Akaike信息准则（AIC）</h4>
+<p>$$\text{AIC} = -2\log\mathcal{L}(\hat{\boldsymbol{\theta}}) + 2k$$
+其中 $k$ 是参数个数。修正版本：
+$$\text{AICc} = \text{AIC} + \frac{2k(k+1)}{n-k-1}$$</p>
+<h4 id="bic">贝叶斯信息准则（BIC）</h4>
+<p>$$\text{BIC} = -2\log\mathcal{L}(\hat{\boldsymbol{\theta}}) + k\log n$$
+BIC对模型复杂度的惩罚更重。</p>
+<h4 id="mdl">最小描述长度（MDL）</h4>
+<p>基于信息论：
+$$\text{MDL} = -\log p(\mathbf{D}|\boldsymbol{\theta}, \mathcal{M}) - \log p(\boldsymbol{\theta}|\mathcal{M})$$</p>
+<h3 id="2552">25.5.2 交叉验证方法</h3>
+<h4 id="k-">k-折交叉验证</h4>
+<p>将数据分为 $k$ 份，循环使用 $k-1$ 份训练，1份验证：
+$$\text{CV}(k) = \frac{1}{k}\sum_{i=1}^k L(\mathbf{y}_i, \hat{\mathbf{y}}_i^{(-i)})$$</p>
+<h4 id="loocv">留一交叉验证（LOOCV）</h4>
+<p>$$\text{CV}_{loo} = \frac{1}{n}\sum_{i=1}^n L(y_i, \hat{y}_i^{(-i)})$$
+对于线性模型，可通过帽子矩阵快速计算：
+$$\hat{y}_i^{(-i)} = y_i - \frac{\hat{e}_i}{1-h_{ii}}$$</p>
+<h4 id="gcv">广义交叉验证（GCV）</h4>
+<p>$$\text{GCV} = \frac{n|\mathbf{y} - \hat{\mathbf{y}}|^2}{(n - \text{tr}(\mathbf{H}))^2}$$
+其中 $\mathbf{H}$ 是帽子矩阵。</p>
+<h3 id="2553-bootstrap">25.5.3 Bootstrap方法</h3>
+<h4 id="bootstrap">参数Bootstrap</h4>
+<p>重采样残差：</p>
+<ol>
+<li>计算残差 $\hat{\mathbf{e}} = \mathbf{y} - \hat{\mathbf{y}}$</li>
+<li>重采样 $\mathbf{e}^* \sim \hat{\mathbf{e}}$</li>
+<li>生成新数据 $\mathbf{y}^* = \hat{\mathbf{y}} + \mathbf{e}^*$</li>
+<li>重新估计参数</li>
+</ol>
+<h4 id="bootstrap_1">非参数Bootstrap</h4>
+<p>直接重采样数据对 $(\mathbf{x}_i, y_i)$：</p>
+<p>置信区间估计：</p>
+<ul>
+<li>百分位法：$[\hat{\theta}^*_{\alpha/2}, \hat{\theta}^*_{1-\alpha/2}]$</li>
+<li>BCa法：偏差修正加速法</li>
+</ul>
+<h3 id="2554">25.5.4 正则化路径</h3>
+<h4 id="lars">LARS算法</h4>
+<p>最小角回归提供完整的正则化路径：</p>
+<p>在每步中，选择与残差相关性最大的变量，沿等角方向移动。</p>
+<h4 id="_37">弹性网络</h4>
+<p>结合L1和L2正则化：
+$$\hat{\boldsymbol{\theta}} = \arg\min_{\boldsymbol{\theta}} |\mathbf{y} - \mathbf{X}\boldsymbol{\theta}|_2^2 + \lambda_1|\boldsymbol{\theta}|_1 + \lambda_2|\boldsymbol{\theta}|_2^2$$</p>
+<h3 id="2555">25.5.5 贝叶斯模型平均</h3>
+<p>考虑模型不确定性：
+$$p(\mathbf{y}_{new}|\mathbf{D}) = \sum_{i=1}^M p(\mathbf{y}_{new}|\mathcal{M}_i, \mathbf{D})p(\mathcal{M}_i|\mathbf{D})$$
+模型后验：
+$$p(\mathcal{M}_i|\mathbf{D}) = \frac{p(\mathbf{D}|\mathcal{M}_i)p(\mathcal{M}_i)}{\sum_j p(\mathbf{D}|\mathcal{M}_j)p(\mathcal{M}_j)}$$</p>
+<h3 id="2556">25.5.6 超参数优化</h3>
+<h4 id="_38">网格搜索</h4>
+<p>系统地搜索参数空间：
+$$(\lambda^*, \gamma^*) = \arg\min_{\lambda,\gamma} \text{CV}(\lambda, \gamma)$$</p>
+<h4 id="_39">贝叶斯优化</h4>
+<p>使用高斯过程建模目标函数：
+$$f(\boldsymbol{\lambda}) \sim \mathcal{GP}(m(\boldsymbol{\lambda}), k(\boldsymbol{\lambda}, \boldsymbol{\lambda}'))$$
+采集函数：</p>
+<ul>
+<li>期望改进（EI）</li>
+<li>概率改进（PI）</li>
+<li>置信上界（UCB）</li>
+</ul>
+<h4 id="_40">随机搜索</h4>
+<p>比网格搜索更高效：
+$$p(\text{随机搜索找到好解}) &gt; p(\text{网格搜索找到好解})$$
+当有效维度较低时。</p>
+<h2 id="_41">本章小结</h2>
+<p>本章系统介绍了逆向问题与参数估计的理论和方法，这些技术在3D打印的质量控制和优化中起着关键作用：</p>
+<ol>
+<li><strong>贝叶斯推断框架</strong>：提供了处理不确定性的统一方法，通过MCMC和变分推断可以获得参数的完整后验分布</li>
+<li><strong>伴随状态方法</strong>：高效计算梯度信息，特别适合PDE约束的大规模优化问题</li>
+<li><strong>数据同化技术</strong>：融合模型预测和观测数据，实现状态估计和预测的动态更新</li>
+<li><strong>系统识别方法</strong>：从实验数据中提取系统模型，包括频域和时域方法</li>
+<li><strong>模型选择准则</strong>：平衡模型复杂度和拟合优度，避免过拟合</li>
+</ol>
+<p>关键数学工具：</p>
+<ul>
+<li>概率论与贝叶斯定理</li>
+<li>变分法与伴随方程</li>
+<li>动态系统理论</li>
+<li>最优化理论</li>
+<li>信息论准则</li>
+</ul>
+<h2 id="_42">练习题</h2>
+<h3 id="_43">基础题</h3>
+<p><strong>练习25.1</strong> 推导Metropolis-Hastings算法的细致平衡条件
+设转移核为 $P(\boldsymbol{\theta} \to \boldsymbol{\theta}') = q(\boldsymbol{\theta}'|\boldsymbol{\theta})\alpha(\boldsymbol{\theta}, \boldsymbol{\theta}')$，证明该算法满足细致平衡。</p>
+<p><em>Hint</em>: 分两种情况讨论：$\alpha = 1$ 和 $\alpha &lt; 1$。</p>
+<details>
+<summary>答案</summary>
+<p>当 $p(\boldsymbol{\theta}')q(\boldsymbol{\theta}|\boldsymbol{\theta}') \geq p(\boldsymbol{\theta})q(\boldsymbol{\theta}'|\boldsymbol{\theta})$ 时：</p>
+<ul>
+<li>左边：$p(\boldsymbol{\theta})q(\boldsymbol{\theta}'|\boldsymbol{\theta}) \cdot 1 = p(\boldsymbol{\theta})q(\boldsymbol{\theta}'|\boldsymbol{\theta})$</li>
+<li>右边：$p(\boldsymbol{\theta}')q(\boldsymbol{\theta}|\boldsymbol{\theta}') \cdot \frac{p(\boldsymbol{\theta})q(\boldsymbol{\theta}'|\boldsymbol{\theta})}{p(\boldsymbol{\theta}')q(\boldsymbol{\theta}|\boldsymbol{\theta}')} = p(\boldsymbol{\theta})q(\boldsymbol{\theta}'|\boldsymbol{\theta})$</li>
+</ul>
+<p>反之亦然，故满足细致平衡。</p>
+</details>
+<p><strong>练习25.2</strong> 伴随方法的梯度计算
+对于线性系统 $\mathbf{K}(\theta)\mathbf{u} = \mathbf{f}$，目标函数 $J = \frac{1}{2}|\mathbf{u} - \mathbf{u}_d|^2$，推导 $\frac{dJ}{d\theta}$。</p>
+<p><em>Hint</em>: 使用隐函数定理处理 $\frac{\partial \mathbf{u}}{\partial \theta}$。</p>
+<details>
+<summary>答案</summary>
+<p>从 $\mathbf{K}\mathbf{u} = \mathbf{f}$ 对 $\theta$ 求导：
+$$\frac{\partial \mathbf{K}}{\partial \theta}\mathbf{u} + \mathbf{K}\frac{\partial \mathbf{u}}{\partial \theta} = \mathbf{0}$$
+因此：$\frac{\partial \mathbf{u}}{\partial \theta} = -\mathbf{K}^{-1}\frac{\partial \mathbf{K}}{\partial \theta}\mathbf{u}$</p>
+<p>梯度：
+$$\frac{dJ}{d\theta} = (\mathbf{u} - \mathbf{u}_d)^T\frac{\partial \mathbf{u}}{\partial \theta} = -(\mathbf{u} - \mathbf{u}_d)^T\mathbf{K}^{-1}\frac{\partial \mathbf{K}}{\partial \theta}\mathbf{u}$$
+定义伴随变量 $\boldsymbol{\lambda} = \mathbf{K}^{-T}(\mathbf{u} - \mathbf{u}_d)$，得：
+$$\frac{dJ}{d\theta} = -\boldsymbol{\lambda}^T\frac{\partial \mathbf{K}}{\partial \theta}\mathbf{u}$$</p>
+</details>
+<p><strong>练习25.3</strong> Kalman滤波的最优性
+证明Kalman滤波在线性高斯假设下是最小均方误差（MMSE）估计器。</p>
+<p><em>Hint</em>: 使用正交投影定理。</p>
+<details>
+<summary>答案</summary>
+<p>MMSE估计要求：
+$$\mathbb{E}[(\mathbf{x}_k - \hat{\mathbf{x}}_k)(\mathbf{z}_j - \mathbb{E}[\mathbf{z}_j])^T] = \mathbf{0}, \quad j = 1,\ldots,k$$
+这等价于误差与所有观测正交。Kalman滤波的更新方程正好满足此条件，因为：
+$$\mathbf{x}_k - \hat{\mathbf{x}}_{k|k} = (\mathbf{I} - \mathbf{K}_k\mathbf{H}_k)(\mathbf{x}_k - \hat{\mathbf{x}}_{k|k-1}) - \mathbf{K}_k\mathbf{v}_k$$
+其中创新 $\mathbf{z}_k - \mathbf{H}_k\hat{\mathbf{x}}_{k|k-1}$ 与之前的观测不相关。</p>
+</details>
+<p><strong>练习25.4</strong> AIC与BIC的渐近性质
+说明为什么BIC是一致的（consistent）而AIC不是。</p>
+<p><em>Hint</em>: 考虑样本量 $n \to \infty$ 时的行为。</p>
+<details>
+<summary>答案</summary>
+<p>设真实模型为 $\mathcal{M}_0$，候选模型为 $\mathcal{M}_1$（过参数化）。</p>
+<p>当 $n \to \infty$：</p>
+<ul>
+<li>AIC差值：$\Delta\text{AIC} = 2(k_1 - k_0) - 2(\mathcal{L}_1 - \mathcal{L}_0) \to 2(k_1 - k_0) &gt; 0$（有限）</li>
+<li>BIC差值：$\Delta\text{BIC} = (k_1 - k_0)\log n - 2(\mathcal{L}_1 - \mathcal{L}_0) \to \infty$</li>
+</ul>
+<p>因此BIC会选择真实模型（一致性），而AIC可能选择过参数化模型。</p>
+</details>
+<h3 id="_44">挑战题</h3>
+<p><strong>练习25.5</strong> 非线性系统的粒子滤波
+考虑非线性状态空间模型：
+$$x_{k+1} = \frac{x_k}{2} + \frac{25x_k}{1 + x_k^2} + 8\cos(1.2k) + w_k$$
+$$y_k = \frac{x_k^2}{20} + v_k$$
+其中 $w_k \sim \mathcal{N}(0, 10)$，$v_k \sim \mathcal{N}(0, 1)$。设计粒子滤波算法并分析有效样本量。</p>
+<p><em>Hint</em>: 使用系统重采样和有效样本量 $N_{eff} = 1/\sum_i (w^{(i)})^2$。</p>
+<details>
+<summary>答案</summary>
+<p>粒子滤波步骤：</p>
+<ol>
+<li>初始化：$x_0^{(i)} \sim p(x_0)$，$w_0^{(i)} = 1/N$</li>
+<li>预测：$x_{k|k-1}^{(i)} = f(x_{k-1}^{(i)}, k-1) + w_k^{(i)}$</li>
+<li>更新权重：$w_k^{(i)} \propto w_{k-1}^{(i)} p(y_k|x_{k|k-1}^{(i)})$</li>
+<li>归一化：$w_k^{(i)} = w_k^{(i)}/\sum_j w_k^{(j)}$</li>
+<li>计算 $N_{eff}$，若 $N_{eff} &lt; N/2$，执行重采样</li>
+</ol>
+<p>该系统的强非线性导致粒子退化严重，需要较多粒子（$N &gt; 500$）才能获得稳定估计。</p>
+</details>
+<p><strong>练习25.6</strong> 稀疏贝叶斯学习的EM算法
+对于线性模型 $\mathbf{y} = \boldsymbol{\Phi}\boldsymbol{\theta} + \boldsymbol{\epsilon}$，使用分层先验：
+$$p(\boldsymbol{\theta}|\boldsymbol{\alpha}) = \prod_i \mathcal{N}(\theta_i|0, \alpha_i^{-1})$$
+$$p(\alpha_i) = \text{Gamma}(\alpha_i|a, b)$$
+推导EM算法更新公式。</p>
+<p><em>Hint</em>: E步计算后验，M步最大化边际似然的下界。</p>
+<details>
+<summary>答案</summary>
+<p>E步：计算后验
+$$p(\boldsymbol{\theta}|\mathbf{y}, \boldsymbol{\alpha}) = \mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma})$$
+其中：</p>
+<ul>
+<li>$\boldsymbol{\Sigma} = (\beta\boldsymbol{\Phi}^T\boldsymbol{\Phi} + \text{diag}(\boldsymbol{\alpha}))^{-1}$</li>
+<li>$\boldsymbol{\mu} = \beta\boldsymbol{\Sigma}\boldsymbol{\Phi}^T\mathbf{y}$</li>
+</ul>
+<p>M步：更新超参数
+$$\alpha_i^{new} = \frac{1}{\mu_i^2 + \Sigma_{ii}}$$
+其中 $\gamma_i = 1 - \alpha_i\Sigma_{ii}$ 表示有效自由度。</p>
+<p>迭代直到收敛，许多 $\alpha_i \to \infty$ 导致对应的 $\theta_i \to 0$（稀疏性）。</p>
+</details>
+<p><strong>练习25.7</strong> 4D-Var与增量方法
+对于大规模问题，直接求解4D-Var代价高昂。推导增量4D-Var方法，并分析预处理策略。</p>
+<p><em>Hint</em>: 在背景场附近线性化，使用共轭梯度法。</p>
+<details>
+<summary>答案</summary>
+<p>增量形式：$\mathbf{x} = \mathbf{x}_b + \delta\mathbf{x}$</p>
+<p>线性化模型：$\delta\mathbf{x}_{k+1} = \mathbf{M}_k\delta\mathbf{x}_k$</p>
+<p>代价函数：
+$$J[\delta\mathbf{x}_0] = \frac{1}{2}\delta\mathbf{x}_0^T\mathbf{B}^{-1}\delta\mathbf{x}_0 + \frac{1}{2}\sum_k(\mathbf{d}_k - \mathbf{H}_k\mathbf{M}_{0:k}\delta\mathbf{x}_0)^T\mathbf{R}_k^{-1}(\cdots)$$
+其中 $\mathbf{d}_k = \mathbf{y}_k - \mathcal{H}_k(\mathcal{M}_{0:k}(\mathbf{x}_b))$</p>
+<p>预处理：使用 $\mathbf{B}^{1/2}$ 变换：$\boldsymbol{\chi} = \mathbf{B}^{-1/2}\delta\mathbf{x}_0$</p>
+<p>Hessian：$\mathbf{H} = \mathbf{I} + \mathbf{B}^{1/2}\sum_k\mathbf{M}_{0:k}^T\mathbf{H}_k^T\mathbf{R}_k^{-1}\mathbf{H}_k\mathbf{M}_{0:k}\mathbf{B}^{1/2}$</p>
+<p>使用Lanczos方法计算主特征向量加速收敛。</p>
+</details>
+<p><strong>练习25.8</strong> 神经网络超参数的贝叶斯优化
+设计一个贝叶斯优化算法来调整3D形状生成网络的超参数（学习率、层数、隐藏单元数）。</p>
+<p><em>Hint</em>: 使用Matérn核的高斯过程，EI采集函数。</p>
+<details>
+<summary>答案</summary>
+<ol>
+<li>
+<p>参数空间定义：
+   - 学习率：$\eta \in [10^{-5}, 10^{-1}]$（对数尺度）
+   - 层数：$L \in \{2, 3, \ldots, 10\}$（整数）
+   - 隐藏单元：$H \in \{64, 128, 256, 512\}$（离散）</p>
+</li>
+<li>
+<p>GP建模：
+   核函数：$k(\mathbf{x}, \mathbf{x}') = \sigma_f^2\left(1 + \frac{\sqrt{5}d}{l} + \frac{5d^2}{3l^2}\right)\exp\left(-\frac{\sqrt{5}d}{l}\right)$</p>
+</li>
+</ol>
+<p>其中 $d = |\mathbf{x} - \mathbf{x}'|$，使用ARD处理不同尺度。</p>
+<ol start="3">
+<li>
+<p>EI采集：
+$$\text{EI}(\mathbf{x}) = (\mu(\mathbf{x}) - f^*)\Phi\left(\frac{\mu(\mathbf{x}) - f^*}{\sigma(\mathbf{x})}\right) + \sigma(\mathbf{x})\phi\left(\frac{\mu(\mathbf{x}) - f^*}{\sigma(\mathbf{x})}\right)$$</p>
+</li>
+<li>
+<p>优化策略：
+   - 前5次：拉丁超立方采样
+   - 后续：最大化EI
+   - 使用multi-start L-BFGS优化连续变量
+   - 枚举离散变量</p>
+</li>
+<li>
+<p>早停策略：若连续10次迭代无改进，停止。</p>
+</li>
+</ol>
+</details>
+<h2 id="_45">常见陷阱与错误</h2>
+<ol>
+<li>
+<p><strong>MCMC收敛诊断不足</strong>
+   - 错误：运行固定步数就认为收敛
+   - 正确：使用Gelman-Rubin统计量、有效样本量等诊断
+   - 建议：运行多条链，检查 $\hat{R} &lt; 1.1$</p>
+</li>
+<li>
+<p><strong>伴随方法的离散一致性</strong>
+   - 错误：先离散化PDE再求伴随
+   - 正确：保持离散伴随与离散原始问题一致
+   - 验证：使用有限差分检查梯度精度</p>
+</li>
+<li>
+<p><strong>Kalman滤波的数值稳定性</strong>
+   - 错误：直接使用标准更新公式
+   - 正确：使用Joseph形式或平方根滤波
+   - 关键：确保协方差矩阵保持正定</p>
+</li>
+<li>
+<p><strong>粒子滤波的退化问题</strong>
+   - 错误：忽视有效样本量下降
+   - 正确：自适应重采样，使用辅助粒子滤波
+   - 监控：跟踪权重方差和有效样本量</p>
+</li>
+<li>
+<p><strong>过拟合与欠拟合</strong>
+   - 错误：只看训练误差选择模型
+   - 正确：使用交叉验证或信息准则
+   - 平衡：考虑偏差-方差权衡</p>
+</li>
+<li>
+<p><strong>超参数优化的局部最优</strong>
+   - 错误：单点初始化贝叶斯优化
+   - 正确：多点初始化，探索与利用平衡
+   - 策略：使用portfolio方法结合多种采集函数</p>
+</li>
+</ol>
+<h2 id="_46">最佳实践检查清单</h2>
+<h3 id="_47">问题建模</h3>
+<ul>
+<li>[ ] 明确定义前向模型和观测模型</li>
+<li>[ ] 识别参数的物理约束和先验信息</li>
+<li>[ ] 评估问题的可识别性</li>
+<li>[ ] 确定噪声模型和不确定性来源</li>
+<li>[ ] 选择合适的正则化策略</li>
+</ul>
+<h3 id="_48">计算方法选择</h3>
+<ul>
+<li>[ ] 根据问题规模选择方法（MCMC vs 变分推断）</li>
+<li>[ ] 考虑实时性要求（离线 vs 在线）</li>
+<li>[ ] 评估梯度计算方法（伴随 vs 有限差分）</li>
+<li>[ ] 选择合适的优化算法</li>
+<li>[ ] 设计并行化策略</li>
+</ul>
+<h3 id="_49">实验设计</h3>
+<ul>
+<li>[ ] 优化传感器位置和采样频率</li>
+<li>[ ] 设计激励信号最大化信息量</li>
+<li>[ ] 考虑实验成本和约束</li>
+<li>[ ] 规划验证实验</li>
+<li>[ ] 准备异常检测机制</li>
+</ul>
+<h3 id="_50">结果验证</h3>
+<ul>
+<li>[ ] 使用多种诊断工具检查收敛</li>
+<li>[ ] 进行敏感性分析</li>
+<li>[ ] 计算置信区间或可信区间</li>
+<li>[ ] 与独立数据集验证</li>
+<li>[ ] 检查物理合理性</li>
+</ul>
+<h3 id="3d">3D打印特定考虑</h3>
+<ul>
+<li>[ ] 考虑材料的非线性和各向异性</li>
+<li>[ ] 处理多尺度特征</li>
+<li>[ ] 融合多模态传感数据</li>
+<li>[ ] 适应实时过程控制需求</li>
+<li>[ ] 考虑制造约束和公差</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter24.html" class="nav-link prev">← 第24章：仿生设计与自然算法</a><a href="./chapter26.html" class="nav-link next">第26章：实时仿真与数字孪生 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

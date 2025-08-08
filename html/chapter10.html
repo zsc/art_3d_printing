@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第10章：路径规划与填充</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class=""><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class="active"><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class=""><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class=""><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class=""><a href="./chapter21.html">第21章：深度生成模型</a></li><li class=""><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class=""><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="10">第10章：路径规划与填充</h1>
+<p>本章深入探讨3D打印中的路径规划算法和填充策略。从基础的轮廓偏置算法开始，逐步介绍各种高级填充模式的数学原理，包括Voronoi图、空间填充曲线等。最后讨论路径优化问题和功能梯度材料的填充策略。这些技术直接影响打印效率、结构强度和材料分布。</p>
+<h2 id="101-clipper">10.1 轮廓偏置与Clipper库原理</h2>
+<h3 id="1011">10.1.1 多边形偏置的数学基础</h3>
+<p>轮廓偏置（Polygon Offsetting）是生成填充路径的基础操作。给定平面多边形 $P$，其偏置多边形定义为：</p>
+<p>$$P_{\delta} = \{x \in \mathbb{R}^2 : d(x, P) = \delta\}$$
+其中 $d(x, P) = \min_{p \in P} |x - p|$ 是点到多边形的最短距离。</p>
+<p><strong>Minkowski和表示</strong>：
+偏置操作等价于Minkowski和：
+$$P_{\delta} = P \oplus B_{\delta}$$
+其中 $B_{\delta} = \{x \in \mathbb{R}^2 : |x| \leq \delta\}$ 是半径为 $\delta$ 的圆盘。</p>
+<p>对于简单多边形的每条边 $e_i$，偏置后的边 $e'_i$ 满足：</p>
+<ul>
+<li>与原边平行</li>
+<li>法向距离为 $\delta$</li>
+</ul>
+<p>偏置方向由边的法向量决定：
+$$\mathbf{n}_i = \frac{1}{|e_i|}(y_{i+1} - y_i, x_i - x_{i+1})$$
+<strong>符号距离函数</strong>：
+多边形的符号距离函数 $\phi: \mathbb{R}^2 \to \mathbb{R}$：
+$$\phi(x) = \begin{cases}
+-d(x, \partial P) &amp; x \in P \\
++d(x, \partial P) &amp; x \notin P
+\end{cases}$$
+偏置轮廓即为水平集 $\{x : \phi(x) = \delta\}$。</p>
+<h3 id="1012">10.1.2 顶点处理与斜接限制</h3>
+<p>在多边形顶点处，相邻边的偏置可能产生不同的交点位置。设顶点 $v_i$ 处的内角为 $\theta_i$，两条相邻边的单位法向量为 $\mathbf{n}_{i-1}$ 和 $\mathbf{n}_i$。</p>
+<p><strong>斜接（Miter）连接</strong>：偏置顶点位置为：
+$$v'_i = v_i + \frac{\delta}{\sin(\theta_i/2)} \cdot \frac{\mathbf{n}_{i-1} + \mathbf{n}_i}{|\mathbf{n}_{i-1} + \mathbf{n}_i|}$$
+<strong>角平分线方法</strong>：
+设角平分线方向 $\mathbf{b}_i = \frac{\mathbf{n}_{i-1} + \mathbf{n}_i}{|\mathbf{n}_{i-1} + \mathbf{n}_i|}$</p>
+<p>偏置距离：
+$$d_i = \frac{\delta}{\mathbf{n}_{i-1} \cdot \mathbf{b}_i} = \frac{\delta}{\cos((\pi - \theta_i)/2)}$$
+当 $\theta_i$ 很小时，斜接长度 $\frac{\delta}{\sin(\theta_i/2)}$ 可能非常大。定义斜接限制因子：
+$$m_{limit} = \frac{1}{\sin(\theta_{min}/2)}$$
+当超过限制时，采用<strong>斜角（Bevel）</strong>或<strong>圆角（Round）</strong>连接。</p>
+<p><strong>圆角连接的参数化</strong>：
+圆弧段参数方程（$t \in [0, 1]$）：
+$$\mathbf{p}(t) = v_i + \delta \cdot (\cos(\alpha(t)), \sin(\alpha(t)))$$
+其中 $\alpha(t) = \alpha_{start} + t(\alpha_{end} - \alpha_{start})$</p>
+<h3 id="1013">10.1.3 自相交检测与处理</h3>
+<p>偏置操作可能产生自相交，特别是在凹多边形的情况下。检测自相交需要：</p>
+<ol>
+<li><strong>扫描线算法</strong>：复杂度 $O(n \log n)$</li>
+<li><strong>Bentley-Ottmann算法</strong>：处理线段相交</li>
+<li><strong>布尔运算</strong>：通过并集操作消除自相交</li>
+</ol>
+<p><strong>Bentley-Ottmann算法详解</strong>：</p>
+<p>维护两个数据结构：</p>
+<ul>
+<li><strong>事件队列</strong> $Q$：按y坐标排序的端点和交点</li>
+<li><strong>状态结构</strong> $T$：当前扫描线与线段的交点，按x坐标排序</li>
+</ul>
+<p>算法步骤：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">初始化Q为所有线段端点</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">while</span><span class="w"> </span><span class="n">Q非空</span><span class="p">:</span>
+<span class="w">   </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Q</span><span class="mf">.</span><span class="n">pop</span><span class="p">()</span>
+<span class="w">   </span><span class="kr">if</span><span class="w"> </span><span class="n">p是上端点</span><span class="p">:</span><span class="w"> </span><span class="n">HandleUpperEndpoint</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+<span class="w">   </span><span class="kr">if</span><span class="w"> </span><span class="n">p是下端点</span><span class="p">:</span><span class="w"> </span><span class="n">HandleLowerEndpoint</span><span class="p">(</span><span class="n">p</span><span class="p">)</span><span class="w">  </span>
+<span class="w">   </span><span class="kr">if</span><span class="w"> </span><span class="n">p是交点</span><span class="p">:</span><span class="w"> </span><span class="n">HandleIntersection</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+<span class="mf">3.</span><span class="w"> </span><span class="n">返回所有找到的交点</span>
+</code></pre></div>
+
+<p><strong>Vatti裁剪算法</strong>：</p>
+<p>核心数据结构：</p>
+<ul>
+<li><strong>边表</strong>（ET）：按y_{min}排序的边</li>
+<li><strong>活动边表</strong>（AET）：与当前扫描线相交的边</li>
+<li><strong>输出多边形表</strong>：构建结果</li>
+</ul>
+<p>状态转换：</p>
+<ul>
+<li>局部最小值：开始新的多边形</li>
+<li>左边界：进入多边形内部</li>
+<li>右边界：离开多边形内部</li>
+<li>相交点：交换边的左右关系</li>
+</ul>
+<h3 id="1014">10.1.4 鲁棒性问题</h3>
+<p>浮点运算的数值误差可能导致拓扑不一致。Clipper库采用整数坐标：
+$$x_{int} = \lfloor x_{float} \cdot scale + 0.5 \rfloor$$
+其中 $scale$ 通常取 $10^6$ 或更大，保证精度同时避免浮点误差。</p>
+<p><strong>精确算术谓词</strong>：对于关键的几何判断（如点在线的哪一侧），使用：
+$$\text{orient2d}(a, b, c) = \det\begin{bmatrix} a_x - c_x &amp; a_y - c_y \\ b_x - c_x &amp; b_y - c_y \end{bmatrix}$$
+<strong>Shewchuk的自适应精度算术</strong>：</p>
+<ol>
+<li><strong>快速浮点计算</strong>：首先用标准浮点</li>
+<li><strong>误差估计</strong>：计算舍入误差界</li>
+<li><strong>精确计算</strong>：仅在误差可能影响符号时</li>
+</ol>
+<p>误差界估计（对于2D orientation）：
+$$|\epsilon| \leq (3 + 16\epsilon_{mach}) \epsilon_{mach} \cdot (|a_x - c_x| \cdot |b_y - c_y| + |a_y - c_y| \cdot |b_x - c_x|)$$
+<strong>区间算术方法</strong>：
+将每个数表示为区间 $[a_{low}, a_{high}]$：</p>
+<ul>
+<li>加法：$[a_l, a_h] + [b_l, b_h] = [a_l + b_l, a_h + b_h]$</li>
+<li>乘法：考虑所有端点组合的最小/最大值</li>
+<li>如果结果区间不包含0，符号确定</li>
+</ul>
+<h2 id="102-voronoifermat">10.2 Voronoi填充与Fermat螺旋</h2>
+<h3 id="1021-voronoi">10.2.1 Voronoi图的计算几何</h3>
+<p>给定平面上的点集 $S = \{p_1, ..., p_n\}$，点 $p_i$ 的Voronoi单元定义为：
+$$V(p_i) = \{x \in \mathbb{R}^2 : |x - p_i| \leq |x - p_j|, \forall j \neq i\}$$
+<strong>对偶性质</strong>：
+Voronoi图与Delaunay三角化对偶：</p>
+<ul>
+<li>Voronoi顶点 ↔ Delaunay三角形的外接圆心</li>
+<li>Voronoi边 ↔ Delaunay边的垂直平分线</li>
+<li>Voronoi单元 ↔ Delaunay顶点</li>
+</ul>
+<p><strong>Fortune扫描线算法</strong>：</p>
+<p>核心观察：点 $p$ 到扫描线 $\ell$ 上方已处理点的最近距离等于到某个抛物线的距离。</p>
+<p>海滩线（beach line）是这些抛物线的下包络线。</p>
+<p>海滩线上的抛物线方程（扫描线位置为 $y = \ell$）：
+$$y = \frac{(x - p_x)^2}{2(p_y - \ell)} + \frac{p_y + \ell}{2}$$
+<strong>两个抛物线的交点</strong>：
+给定焦点 $p_i = (x_i, y_i)$ 和 $p_j = (x_j, y_j)$，交点x坐标：
+$$x = \frac{x_j(y_i - \ell) - x_i(y_j - \ell) \pm \sqrt{D}}{y_i - y_j}$$
+其中 $D = (y_i - \ell)(y_j - \ell)[(x_i - x_j)^2 + (y_i - y_j)^2]$</p>
+<p><strong>圆事件检测</strong>：
+三个连续抛物线 $p_i, p_j, p_k$ 的收敛点是其外接圆的最低点。</p>
+<h3 id="1022-voronoi">10.2.2 中轴变换与Voronoi骨架</h3>
+<p>多边形的中轴（Medial Axis）是内部所有具有多个最近边界点的点的集合。对于多边形 $P$：
+$$MA(P) = \{x \in P : |\{y \in \partial P : |x - y| = d(x, \partial P)\}| \geq 2\}$$
+<strong>中轴的数学性质</strong>：</p>
+<ol>
+<li>
+<p><strong>火烧草原类比</strong>：中轴是边界同时点火后火锋相遇的轨迹</p>
+</li>
+<li>
+<p><strong>最大内切圆中心</strong>：中轴上每点是某个最大内切圆的中心</p>
+</li>
+<li>
+<p><strong>形态学骨架</strong>：
+$$MA(P) = \bigcup_{r &gt; 0} \{\text{centers of maximal } B_r \subseteq P\}$$
+中轴与Voronoi图的关系：</p>
+</li>
+</ol>
+<ul>
+<li>多边形边的Voronoi图包含中轴</li>
+<li>中轴的分支对应Voronoi边</li>
+<li>分支点对应Voronoi顶点</li>
+</ul>
+<p><strong>Lee算法（计算方法）</strong>：</p>
+<ol>
+<li>构建约束Delaunay三角化（CDT）</li>
+<li>分类三角形：
+   - Type 0: 三个顶点都在边界上
+   - Type 1: 两个顶点在同一边上
+   - Type 2: 两个顶点在不同边上
+   - Type 3: 一个顶点在角点</li>
+<li>提取中轴：
+   - Type 0: 外接圆心
+   - Type 1: 到对边的垂线
+   - Type 2,3: 角平分线段</li>
+<li>修剪外部分支（使用circumradius阈值）</li>
+</ol>
+<h3 id="1023-fermat">10.2.3 Fermat螺旋填充</h3>
+<p>Fermat螺旋的参数方程：
+$$r = a\sqrt{\theta}, \quad \theta \in [0, \theta_{max}]$$
+笛卡尔坐标：
+$$\begin{cases}
+x(\theta) = a\sqrt{\theta} \cos(\theta) \\
+y(\theta) = a\sqrt{\theta} \sin(\theta)
+\end{cases}$$
+<strong>微分几何性质</strong>：</p>
+<ol>
+<li>
+<p><strong>弧长参数化</strong>：
+$$s(\theta) = \int_0^\theta \sqrt{r^2 + (\frac{dr}{d\theta})^2} d\theta = \frac{a}{2} \int_0^\theta \frac{\sqrt{4\theta + 1}}{\sqrt{\theta}} d\theta$$</p>
+</li>
+<li>
+<p><strong>曲率计算</strong>：
+   使用极坐标曲率公式：
+$$\kappa = \frac{|r^2 + 2(\frac{dr}{d\theta})^2 - r\frac{d^2r}{d\theta^2}|}{(r^2 + (\frac{dr}{d\theta})^2)^{3/2}}$$
+对Fermat螺旋：
+$$\kappa = \frac{2 + \theta}{2a(1 + \theta)^{3/2}}$$</p>
+</li>
+<li>
+<p><strong>等间距性分析</strong>：
+   相邻螺旋臂（相位差$2\pi$）的径向距离：
+$$\Delta r = a(\sqrt{\theta + 2\pi} - \sqrt{\theta}) \approx \frac{\pi a}{\sqrt{\theta}}$$
+当 $\theta &gt;&gt; 2\pi$ 时，间距趋于常数 $\pi a$。</p>
+</li>
+</ol>
+<p><strong>填充密度控制</strong>：
+通过调整参数 $a$ 控制填充密度：
+$$\rho = \frac{\text{path length}}{\text{area}} \approx \frac{1}{\pi a}$$</p>
+<h3 id="1024">10.2.4 连续路径生成</h3>
+<p>将Voronoi骨架转换为连续填充路径：</p>
+<p><strong>基于中轴的偏置算法</strong>：</p>
+<ol>
+<li>
+<p><strong>偏置层生成</strong>：
+   从中轴开始，生成等距偏置曲线：
+$$C_k = \{x : d(x, MA) = k\delta\}, \quad k = 0, 1, 2, ...$$</p>
+</li>
+<li>
+<p><strong>拓扑事件处理</strong>：
+   - <strong>分裂事件</strong>：一条曲线分为多条
+   - <strong>合并事件</strong>：多条曲线合为一条
+   - <strong>消失事件</strong>：曲线收缩为点</p>
+</li>
+<li>
+<p><strong>连接优化</strong>（层间过渡）：</p>
+</li>
+</ol>
+<p>构建二分图 $G = (U \cup V, E)$：</p>
+<ul>
+<li>$U$：第$i$层的端点</li>
+<li>$V$：第$i+1$层的端点</li>
+<li>权重：$w(u,v) = |u - v|$</li>
+</ul>
+<p>求解最小权匹配。</p>
+<p><strong>路径平滑</strong>：</p>
+<p>使用变分方法最小化能量泛函：
+$$E[\gamma] = \int_0^L \left[ \alpha |\gamma'(s)|^2 + \beta |\gamma''(s)|^2 \right] ds$$
+其中：</p>
+<ul>
+<li>第一项：长度惩罚</li>
+<li>第二项：曲率惩罚</li>
+</ul>
+<p>Euler-Lagrange方程：
+$$\alpha \gamma'' - \beta \gamma^{(4)} = 0$$
+离散化后使用五点差分求解。</p>
+<h2 id="103-hilbertpeano">10.3 空间填充曲线：Hilbert、Peano</h2>
+<h3 id="1031-hilbert">10.3.1 Hilbert曲线的递归构造</h3>
+<p>Hilbert曲线是一种分形空间填充曲线，通过递归定义：</p>
+<p><strong>基础模式</strong>（$n=1$）：</p>
+<div class="codehilite"><pre><span></span><code>┌─┐
+│ │
+└─┘
+</code></pre></div>
+
+<p><strong>递归规则</strong>（$n \to n+1$）：</p>
+<ol>
+<li>将正方形分为 $2^n \times 2^n$ 个子正方形</li>
+<li>对每个象限应用旋转/反射的基础模式</li>
+<li>连接相邻象限</li>
+</ol>
+<p><strong>数学表示</strong>：
+定义映射 $H_n: [0, 1] \to [0, 1]^2$，满足：</p>
+<ul>
+<li>$H_n$ 是连续的</li>
+<li>$H_n$ 是满射的（空间填充）</li>
+<li>保持局部性：$|t_1 - t_2|$ 小 $\Rightarrow$ $|H_n(t_1) - H_n(t_2)|$ 小</li>
+</ul>
+<p><strong>L-系统表示</strong>：
+Hilbert曲线可用L-系统描述：</p>
+<ul>
+<li>公理：A</li>
+<li>规则：</li>
+<li>A → +BF−AFA−FB+</li>
+<li>B → −AF+BFB+FA−</li>
+<li>符号：F=前进，+=左转90°，−=右转90°</li>
+</ul>
+<p><strong>Hölder连续性</strong>：
+Hilbert曲线满足Hölder条件：
+$$|H(t_1) - H(t_2)| \leq C|t_1 - t_2|^{1/2}$$
+证明：第$n$级曲线将单位区间分为$4^n$段，每段映射到边长$2^{-n}$的正方形。</p>
+<h3 id="1032-gray">10.3.2 Gray码与位操作</h3>
+<p>Hilbert曲线的高效计算基于Gray码：
+$$g = b \oplus (b &gt;&gt; 1)$$
+其中 $\oplus$ 是异或操作，$&gt;&gt;$ 是右移。</p>
+<p><strong>坐标到Hilbert索引算法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">function</span><span class="w"> </span><span class="nf">xy2h</span><span class="p">(</span>x, y, n<span class="p">):</span>
+<span class="w">    </span><span class="n">h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nb">i</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="mi">0</span><span class="p">:</span>
+<span class="w">        </span><span class="n">rx</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="nb">i</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span><span class="w">  </span><span class="o">//</span><span class="w"> </span>第<span class="n">i位</span>
+<span class="w">        </span><span class="n">ry</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="n">y</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="nb">i</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">        </span><span class="n">h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="n">h</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="mi">3</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">rx</span><span class="p">)</span><span class="w"> </span>⊕<span class="w"> </span><span class="n">ry</span><span class="w">  </span><span class="o">//</span><span class="w"> </span>2位<span class="n">Gray码</span>
+<span class="w">        </span><span class="o">//</span><span class="w"> </span>坐标变换
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="n">ry</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">:</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="n">rx</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span>
+<span class="w">                </span><span class="n">x</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">x</span>
+<span class="w">                </span><span class="n">y</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">y</span>
+<span class="w">            </span><span class="n">swap</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">)</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">h</span>
+</code></pre></div>
+
+<p><strong>逆变换（Hilbert索引到坐标）</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">function</span><span class="w"> </span><span class="nf">h2xy</span><span class="p">(</span>h, n<span class="p">):</span>
+<span class="w">    </span><span class="n">x</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nb">i</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+<span class="w">        </span><span class="n">rx</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="p">(</span><span class="n">h</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span>
+<span class="w">        </span><span class="n">ry</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="p">(</span><span class="n">h</span><span class="w"> </span>⊕<span class="w"> </span><span class="n">rx</span><span class="p">)</span>
+<span class="w">        </span><span class="n">rot</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">rx</span><span class="p">,</span><span class="w"> </span><span class="n">ry</span><span class="p">)</span>
+<span class="w">        </span><span class="n">x</span><span class="w"> </span><span class="o">+</span><span class="p">=</span><span class="w"> </span><span class="n">rx</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">n</span>
+<span class="w">        </span><span class="n">y</span><span class="w"> </span><span class="o">+</span><span class="p">=</span><span class="w"> </span><span class="n">ry</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">n</span>
+<span class="w">        </span><span class="n">h</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">2</span>
+<span class="w">        </span><span class="n">n</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>位操作优化</strong>：
+使用查找表加速小块计算：
+$$LUT[i] = H_2(i), \quad i \in [0, 15]$$</p>
+<h3 id="1033-peano">10.3.3 Peano曲线与三进制系统</h3>
+<p>Peano曲线基于三进制分割：
+$$P_n: [0, 1] \to [0, 1]^2$$
+<strong>递归构造</strong>：</p>
+<p>第$n$级Peano曲线将单位正方形分为$3^n \times 3^n$个子正方形。</p>
+<p>基础模式（3×3）：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1</span><span class="err">→</span><span class="mf">2</span><span class="err">→</span><span class="mf">3</span>
+<span class="w">    </span><span class="err">↓</span>
+<span class="mf">6</span><span class="err">←</span><span class="mf">5</span><span class="err">←</span><span class="mf">4</span>
+<span class="err">↓</span><span class="w">    </span>
+<span class="mf">7</span><span class="err">→</span><span class="mf">8</span><span class="err">→</span><span class="mf">9</span>
+</code></pre></div>
+
+<p><strong>参数化表示</strong>：
+设 $t \in [0, 1]$ 的三进制展开为 $t = 0.t_1t_2t_3...$</p>
+<p>定义状态转移函数 $\sigma: \{0,1,2\} \times S \to \{0,1,2\}^2 \times S$：
+$$\sigma(d_i, s_i) = ((x_i, y_i), s_{i+1})$$
+其中$s_i \in \{\text{normal}, \text{flip_x}, \text{flip_y}, \text{flip_xy}\}$表示变换状态。</p>
+<p>则坐标为：
+$$\begin{cases}
+x(t) = \sum_{i=1}^{\infty} x_i \cdot 3^{-i} \\
+y(t) = \sum_{i=1}^{\infty} y_i \cdot 3^{-i}
+\end{cases}$$
+<strong>与Hilbert曲线的比较</strong>：</p>
+<ul>
+<li>Peano：更好的各向同性，$3^n$分割</li>
+<li>Hilbert：更好的局部性，$2^n$分割，二进制友好</li>
+<li>两者的Hausdorff维数都是2（真正空间填充）</li>
+</ul>
+<h3 id="1034">10.3.4 填充质量分析</h3>
+<p><strong>局部性度量</strong>（Locality Measure）：
+$$L = \frac{1}{n} \sum_{i=1}^{n} \frac{d_{path}(i, i+1)}{d_{Euclidean}(i, i+1)}$$
+理想值为1，实际值通常在1.5-3之间。</p>
+<p><strong>聚类性质</strong>（Box-counting维数）：
+覆盖曲线所需的边长为$\epsilon$的正方形数量：
+$$N(\epsilon) \sim \epsilon^{-D}$$
+对于Hilbert和Peano曲线，$D = 2$（空间填充）。</p>
+<p><strong>各向同性分析</strong>：</p>
+<p>定义方向相关的相关函数：
+$$C(r, \theta) = \langle \rho(\mathbf{x}) \rho(\mathbf{x} + r\mathbf{e}_\theta) \rangle$$
+各向同性度量：
+$$I = 1 - \frac{\max_\theta C(r, \theta) - \min_\theta C(r, \theta)}{\langle C(r, \theta) \rangle_\theta}$$
+Peano曲线的各向同性优于Hilbert曲线。</p>
+<p><strong>热力学性能</strong>：</p>
+<p>稳态热传导方程：
+$$\nabla \cdot (k \nabla T) + Q = 0$$
+空间填充曲线路径的有效热导率（均匀化理论）：
+$$k_{eff} = k_{material} \cdot f + k_{air} \cdot (1-f)$$
+其中$f$是填充率。曲线的连续性减少了热点。</p>
+<p><strong>机械性能预测</strong>：
+使用Gibson-Ashby模型：
+$$\frac{E_{eff}}{E_s} = C(\frac{\rho_{eff}}{\rho_s})^n$$
+其中$n \approx 2$对于弯曲主导的结构。</p>
+<h2 id="104-tsp">10.4 连续路径规划与TSP问题</h2>
+<h3 id="1041">10.4.1 旅行商问题的数学形式</h3>
+<p>给定 $n$ 个点 $\{p_1, ..., p_n\}$ 和距离矩阵 $D_{ij} = |p_i - p_j|$，TSP寻找排列 $\pi$：
+$$\min_{\pi} \sum_{i=1}^{n} D_{\pi(i), \pi(i+1 \mod n)}$$
+<strong>整数规划形式</strong>：
+$$\begin{align}
+\min \quad &amp; \sum_{i,j} c_{ij} x_{ij} \\
+s.t. \quad &amp; \sum_{j} x_{ij} = 1, \forall i \\
+&amp; \sum_{i} x_{ij} = 1, \forall j \\
+&amp; \sum_{i,j \in S} x_{ij} \leq |S| - 1, \forall S \subset V, 2 \leq |S| \leq n-2
+\end{align}$$
+最后一个约束（子回路消除）数量为指数级。</p>
+<p><strong>Miller-Tucker-Zemlin (MTZ) 公式化</strong>：
+使用额外变量$u_i$避免指数级约束：
+$$\begin{align}
+u_i - u_j + nx_{ij} &amp;\leq n - 1, \quad \forall i \neq j, i,j \geq 2 \\
+2 \leq u_i &amp;\leq n, \quad \forall i \geq 2
+\end{align}$$
+<strong>分支定界方法</strong>：</p>
+<ul>
+<li>下界：使用线性松弛或Held-Karp下界</li>
+<li>上界：启发式解</li>
+<li>分支策略：选择分数$x_{ij}$最接近0.5的变量</li>
+</ul>
+<h3 id="1042">10.4.2 启发式算法</h3>
+<p><strong>最近邻算法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">从任意点开始</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">访问最近的未访问点</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">重复直到所有点被访问</span>
+</code></pre></div>
+
+<p>时间复杂度：$O(n^2)$，近似比：$O(\log n)$</p>
+<p><strong>Christofides算法详解</strong>：</p>
+<ol>
+<li>
+<p><strong>构建最小生成树</strong>：Prim或Kruskal，$O(n^2)$或$O(n\log n)$</p>
+</li>
+<li>
+<p><strong>奇度顶点匹配</strong>：
+   - 识别奇度顶点集$V_{odd}$（偶数个，握手定理）
+   - 构建完全图$K_{V_{odd}}$
+   - 求解最小权完美匹配（Blossom算法，$O(n^3)$）</p>
+</li>
+<li>
+<p><strong>欧拉回路构造</strong>：
+   MST + 匹配 = 所有顶点偶度图
+   使用Hierholzer算法找欧拉回路</p>
+</li>
+<li>
+<p><strong>短路化</strong>：跳过重复顶点</p>
+</li>
+</ol>
+<p><strong>证明1.5-近似</strong>：</p>
+<ul>
+<li>$w(MST) \leq OPT$（删除TSP一条边得生成树）</li>
+<li>$w(M) \leq \frac{1}{2}OPT$（奇度顶点在OPT中的子回路）</li>
+<li>总长度 $\leq 1.5 \cdot OPT$</li>
+</ul>
+<p><strong>贪心插入算法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">初始化为三角形</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">重复</span><span class="err">：</span><span class="n">找到插入成本最小的点</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">插入该点到最佳位置</span>
+</code></pre></div>
+
+<p>近似比：$2 \cdot OPT$</p>
+<h3 id="1043-2-opt">10.4.3 局部搜索与2-opt</h3>
+<p><strong>2-opt操作</strong>：</p>
+<p>删除两条边$(i, i+1)$和$(j, j+1)$，添加$(i, j)$和$(i+1, j+1)$：</p>
+<p>原路径：$... \to i \to i+1 \to ... \to j \to j+1 \to ...$
+新路径：$... \to i \to j \to ... \to i+1 \to j+1 \to ...$</p>
+<p>注意：$i+1$到$j$之间的段被反转。</p>
+<p><strong>改进量计算</strong>：
+$$\Delta = d_{ij} + d_{i+1,j+1} - d_{i,i+1} - d_{j,j+1}$$
+<strong>加速技巧</strong>：</p>
+<ol>
+<li><strong>Don't Look Bits</strong>：标记近期没有改进的顶点</li>
+<li><strong>邻域列表</strong>：只考虑k个最近邻</li>
+<li><strong>几何剪枝</strong>：$d_{ij} &gt; d_{i,i+1} + d_{j,j+1}$时跳过</li>
+</ol>
+<p><strong>k-opt扩展</strong>：</p>
+<ul>
+<li>3-opt：删除3条边，7种重连方式</li>
+<li>时间复杂度：$O(n^k)$</li>
+</ul>
+<p><strong>Lin-Kernighan算法</strong>：</p>
+<p>核心思想：动态选择k值，通过交替序列构建改进。</p>
+<p>交替序列：$X = \{x_1, x_2, ..., x_k\}$（删除边），$Y = \{y_1, y_2, ..., y_k\}$（添加边）</p>
+<p>约束：</p>
+<ol>
+<li>保持连通性</li>
+<li>增益条件：$\sum_{i=1}^{j} (w(x_i) - w(y_i)) &gt; 0$，$\forall j$</li>
+<li>顺序性：$x_i$和$y_i$共享一个端点</li>
+</ol>
+<h3 id="1044">10.4.4 打印路径的特殊约束</h3>
+<p><strong>层间过渡优化</strong>：</p>
+<p>定义层间过渡问题：
+$$\min \sum_{l=1}^{L-1} d(C_l, C_{l+1}) + \lambda \sum_{l=1}^{L} T(C_l)$$
+其中：</p>
+<ul>
+<li>$C_l$：第$l$层的轮廓</li>
+<li>$d(C_l, C_{l+1})$：层间过渡距离</li>
+<li>$T(C_l)$：层内打印时间</li>
+</ul>
+<p><strong>动态规划求解</strong>：
+$$f(l, p) = \min_{q \in C_{l-1}} \{f(l-1, q) + |p - q| + T(l, p)\}$$
+<strong>缝隙位置优化</strong>：</p>
+<p>评价函数：
+$$S(p) = \alpha \cdot V(p) + \beta \cdot C(p) + \gamma \cdot O(p)$$
+其中：</p>
+<ul>
+<li>$V(p)$：可见性分数（视角隐藏）</li>
+<li>$C(p)$：曲率分数（尖角优先）</li>
+<li>$O(p)$：悬垂分数（避免悬垂区）</li>
+</ul>
+<p><strong>速度规划</strong>：</p>
+<p>运动学约束：
+$$\begin{cases}
+|v| \leq v_{max} \\
+|a| \leq a_{max} \\
+|j| \leq j_{max} \quad \text{(jerk限制)}
+\end{cases}$$
+曲率自适应速度：
+$$v(s) = \min\left(v_{max}, \sqrt{\frac{a_{cent}}{\kappa(s)}}, \sqrt[3]{\frac{j_{max}}{|\dot{\kappa}(s)|}}\right)$$
+<strong>S形速度曲线</strong>：
+加速阶段：
+$$v(t) = \begin{cases}
+\frac{1}{2}jt^2 &amp; 0 \leq t &lt; t_1 \\
+v_0 + a_{max}(t - t_1) &amp; t_1 \leq t &lt; t_2 \\
+v_{cruise} - \frac{1}{2}j(t_3 - t)^2 &amp; t_2 \leq t &lt; t_3
+\end{cases}$$</p>
+<h2 id="105">10.5 梯度填充与功能梯度材料</h2>
+<h3 id="1051">10.5.1 密度场定义</h3>
+<p>功能梯度的密度场 $\rho: \Omega \to [0, 1]$，满足：
+$$\begin{cases}
+\nabla \cdot (\sigma(\rho) \nabla u) = f &amp; \text{in } \Omega \\
+u = 0 &amp; \text{on } \Gamma_D \\
+\sigma(\rho) \nabla u \cdot n = g &amp; \text{on } \Gamma_N
+\end{cases}$$
+<strong>材料插值模型</strong>：</p>
+<ol>
+<li>
+<p><strong>SIMP（Solid Isotropic Material with Penalization）</strong>：
+$$E(\rho) = \rho^p E_0, \quad p &gt; 1$$
+通常$p = 3$以惩罚中间密度。</p>
+</li>
+<li>
+<p><strong>RAMP（Rational Approximation of Material Properties）</strong>：
+$$E(\rho) = E_0 \frac{\rho(1 + q)}{\rho + q}, \quad q &gt; 0$$
+避免零密度奇异性。</p>
+</li>
+<li>
+<p><strong>Heaviside投影</strong>：
+$$\tilde{\rho} = \frac{\tanh(\beta \eta) + \tanh(\beta(\rho - \eta))}{\tanh(\beta \eta) + \tanh(\beta(1 - \eta))}$$
+其中$\beta$控制陡峭度，$\eta$是阈值。</p>
+</li>
+</ol>
+<h3 id="1052">10.5.2 填充图案映射</h3>
+<p>将连续密度场离散化为填充图案：</p>
+<p><strong>线性映射</strong>：
+$$spacing(x) = s_{min} + (s_{max} - s_{min})(1 - \rho(x))$$
+<strong>非线性映射</strong>（考虑制造约束）：
+$$spacing(x) = s_{min} \cdot \exp\left(\ln\left(\frac{s_{max}}{s_{min}}\right) \cdot (1 - \rho(x))^{\gamma}\right)$$
+<strong>抓抖（Dithering）技术</strong>：</p>
+<ol>
+<li><strong>Floyd-Steinberg误差扩散</strong>：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>当前像素  7/16
+3/16  5/16  1/16
+</code></pre></div>
+
+<p>误差$e = \rho_{target} - \rho_{actual}$按权重分配。</p>
+<ol start="2">
+<li><strong>蓝噪声抓抖</strong>：
+   使用高频噪声图案，避免低频伪影：
+$$\rho_{dithered}(x,y) = \rho(x,y) + \alpha \cdot B(x,y)$$
+其中$B(x,y)$是蓝噪声模板。</li>
+</ol>
+<p><strong>填充模式选择</strong>：</p>
+<ul>
+<li>低密度（$\rho &lt; 0.3$）：蛋糕或六角形</li>
+<li>中密度（$0.3 \leq \rho &lt; 0.7$）：回形或网格</li>
+<li>高密度（$\rho \geq 0.7$）：同心轮廓</li>
+</ul>
+<h3 id="1053">10.5.3 各向异性填充</h3>
+<p>对于各向异性材料，定义方向场 $\theta: \Omega \to [0, 2\pi]$：</p>
+<p><strong>主应力方向</strong>：
+$$\theta = \frac{1}{2} \arctan\left(\frac{2\tau_{xy}}{\sigma_{xx} - \sigma_{yy}}\right)$$
+<strong>路径生成</strong>：
+沿流线积分：
+$$\frac{dx}{ds} = \cos\theta(x, y), \quad \frac{dy}{ds} = \sin\theta(x, y)$$
+使用Runge-Kutta方法数值求解。</p>
+<h3 id="1054">10.5.4 多材料梯度</h3>
+<p>对于 $m$ 种材料，定义体积分数场 $\phi_i: \Omega \to [0, 1]$：
+$$\sum_{i=1}^{m} \phi_i(x) = 1, \quad \forall x \in \Omega$$
+<strong>材料插值</strong>：
+$$E(x) = \sum_{i=1}^{m} \phi_i(x) E_i$$
+<strong>路径分配策略</strong>：</p>
+<ol>
+<li>时间分割：按比例分配挤出时间</li>
+<li>空间分割：Voronoi划分或条纹图案</li>
+<li>概率分配：随机抖动（dithering）</li>
+</ol>
+<p><strong>优化问题</strong>：
+$$\min_{\phi} \int_{\Omega} f(\phi, \nabla\phi) dx$$
+subject to manufacturing constraints。</p>
+<h2 id="_1">本章小结</h2>
+<p>本章系统介绍了3D打印中路径规划与填充的核心算法：</p>
+<p><strong>关键概念</strong>：</p>
+<ol>
+<li><strong>轮廓偏置</strong>：基于Minkowski和的多边形偏置，处理自相交和数值鲁棒性</li>
+<li><strong>Voronoi填充</strong>：利用中轴变换生成自适应填充路径</li>
+<li><strong>空间填充曲线</strong>：Hilbert和Peano曲线的递归构造与局部性保持</li>
+<li><strong>路径优化</strong>：TSP问题的启发式求解和局部搜索</li>
+<li><strong>梯度填充</strong>：功能梯度材料的密度场映射与各向异性路径</li>
+</ol>
+<p><strong>核心公式汇总</strong>：</p>
+<ul>
+<li>多边形偏置：$P_{\delta} = \{x : d(x, P) = \delta\}$</li>
+<li>Voronoi单元：$V(p_i) = \{x : |x - p_i| \leq |x - p_j|, \forall j \neq i\}$</li>
+<li>Fermat螺旋：$r = a\sqrt{\theta}$</li>
+<li>Hilbert映射：$H_n: [0, 1] \to [0, 1]^2$（递归构造）</li>
+<li>TSP目标：$\min \sum_{i} D_{\pi(i), \pi(i+1)}$</li>
+<li>密度插值：$\sigma(\rho) = \rho^p E_0$（SIMP方法）</li>
+</ul>
+<p><strong>算法复杂度</strong>：</p>
+<ul>
+<li>Bentley-Ottmann线段相交：$O(n \log n)$</li>
+<li>Fortune扫描线（Voronoi）：$O(n \log n)$</li>
+<li>Christofides算法（TSP）：1.5-近似</li>
+<li>2-opt局部搜索：$O(n^2)$每次迭代</li>
+</ul>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>习题10.1</strong> 给定三角形顶点 $A(0,0)$，$B(4,0)$，$C(2,3)$，计算向内偏置距离 $\delta = 0.5$ 后的三角形顶点坐标。</p>
+<details>
+<summary>提示</summary>
+<p>计算每条边的内法向量，然后求偏置边的交点。注意内角的影响。</p>
+</details>
+<details>
+<summary>答案</summary>
+<ol>
+<li>
+<p>计算各边的内法向量（归一化）：
+   - 边AB：$\mathbf{n}_{AB} = (0, 1)$
+   - 边BC：$\mathbf{n}_{BC} = (\frac{3}{2\sqrt{13}}, \frac{2}{2\sqrt{13}})$
+   - 边CA：$\mathbf{n}_{CA} = (\frac{3}{\sqrt{13}}, -\frac{2}{\sqrt{13}})$</p>
+</li>
+<li>
+<p>偏置后的边方程：
+   - $A'B'$：$y = 0.5$
+   - $B'C'$：法向偏置0.5
+   - $C'A'$：法向偏置0.5</p>
+</li>
+<li>
+<p>求交点得到新顶点：
+   - $A' \approx (0.62, 0.5)$
+   - $B' \approx (3.38, 0.5)$
+   - $C' \approx (2, 2.13)$</p>
+</li>
+</ol>
+</details>
+<p><strong>习题10.2</strong> 证明Hilbert曲线在 $n \to \infty$ 时是空间填充的，即其像集在 $[0,1]^2$ 中稠密。</p>
+<details>
+<summary>提示</summary>
+<p>利用一致连续性和紧集的性质。证明任意点都是曲线的极限点。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>证明：</p>
+<ol>
+<li>Hilbert曲线 $H_n$ 将单位区间 $[0,1]$ 映射到 $4^n$ 个边长为 $2^{-n}$ 的正方形</li>
+<li>对任意 $(x,y) \in [0,1]^2$ 和 $\epsilon &gt; 0$，选择 $n$ 使得 $2^{-n} &lt; \epsilon/\sqrt{2}$</li>
+<li>存在某个正方形包含 $(x,y)$，其中心到 $(x,y)$ 的距离 $&lt; \epsilon$</li>
+<li>由于 $H_n$ 经过每个正方形的中心，存在 $t \in [0,1]$ 使得 $|H_n(t) - (x,y)| &lt; \epsilon$</li>
+<li>因此 $\bigcup_{n=1}^{\infty} H_n([0,1])$ 在 $[0,1]^2$ 中稠密</li>
+</ol>
+</details>
+<p><strong>习题10.3</strong> 设计一个算法，将给定的Voronoi图转换为连续的螺旋填充路径。分析算法的时间复杂度。</p>
+<details>
+<summary>提示</summary>
+<p>从中轴开始，逐层向外偏置，并在每层末端连接到下一层。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>算法：</p>
+<ol>
+<li>计算Voronoi图的中轴（$O(n \log n)$）</li>
+<li>从中轴向外偏置，步长为 $\delta$</li>
+<li>对每个偏置轮廓：
+   - 参数化为 $s \in [0, L]$（弧长参数）
+   - 在末端找最近的下一层起点</li>
+<li>使用样条曲线连接层间过渡</li>
+<li>总复杂度：$O(n \log n + km)$，其中 $k$ 是层数，$m$ 是每层的顶点数</li>
+</ol>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>习题10.4</strong> 推导Fermat螺旋相邻臂之间的精确距离公式，并分析其随半径的变化规律。</p>
+<details>
+<summary>提示</summary>
+<p>考虑相位差 $2\pi$ 的两点之间的距离，使用泰勒展开近似。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>设Fermat螺旋 $r = a\sqrt{\theta}$，考虑角度 $\theta$ 和 $\theta + 2\pi$ 的两点：</p>
+<ol>
+<li>
+<p>两点的极坐标：
+   - $P_1: (a\sqrt{\theta}, \theta)$
+   - $P_2: (a\sqrt{\theta + 2\pi}, \theta + 2\pi)$</p>
+</li>
+<li>
+<p>在同一射线上的径向距离：
+$$d_r = a\sqrt{\theta + 2\pi} - a\sqrt{\theta} = a\sqrt{\theta}\left(\sqrt{1 + \frac{2\pi}{\theta}} - 1\right)$$</p>
+</li>
+<li>
+<p>当 $\theta &gt;&gt; 2\pi$ 时，使用泰勒展开：
+$$\sqrt{1 + x} \approx 1 + \frac{x}{2} - \frac{x^2}{8} + O(x^3)$$</p>
+</li>
+<li>
+<p>得到：
+$$d_r \approx \frac{a\pi}{\sqrt{\theta}} = \frac{\pi a^2}{r}$$</p>
+</li>
+<li>
+<p>因此间距与半径成反比，在中心附近间距大，外围间距趋于常数 $\pi a$。</p>
+</li>
+</ol>
+</details>
+<p><strong>习题10.5</strong> 对于TSP问题，证明最近邻算法的近似比为 $O(\log n)$，并构造达到此界的实例。</p>
+<details>
+<summary>提示</summary>
+<p>构造一个"梳子"形状的点集，使最近邻算法产生最坏情况。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>证明上界：</p>
+<ol>
+<li>设最优解长度为 $OPT$</li>
+<li>最近邻选择的每条边长度 $\leq$ 当前未访问点到已访问点的最小距离</li>
+<li>使用概率论证明期望长度 $\leq H_n \cdot OPT$，其中 $H_n = \sum_{i=1}^{n} \frac{1}{i} = O(\log n)$</li>
+</ol>
+<p>构造最坏实例：</p>
+<div class="codehilite"><pre><span></span><code>点集排列如下（&quot;梳子&quot;结构）：
+     1   3   5   7   ...  2n-1
+     |   |   |   |        |
+0 -- 2 - 4 - 6 - 8 - ... - 2n
+</code></pre></div>
+
+<ul>
+<li>最优路径：$0 \to 1 \to 2 \to 3 \to ... \to 2n$，长度 $= 2n + 1$</li>
+<li>最近邻从0开始：$0 \to 2 \to 1 \to 3 \to 4 \to ...$</li>
+<li>产生"之字形"路径，长度 $\approx n \log n$</li>
+<li>近似比 $= \Theta(\log n)$</li>
+</ul>
+</details>
+<p><strong>习题10.6</strong> 设计一个算法，给定应力场 $\sigma(x,y)$，生成沿主应力方向的各向异性填充路径。讨论数值稳定性。</p>
+<details>
+<summary>提示</summary>
+<p>计算主应力方向场，然后积分流线。注意奇点处理。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>算法设计：</p>
+<ol>
+<li>
+<p><strong>主应力方向计算</strong>：
+$$\theta = \frac{1}{2} \arctan\left(\frac{2\tau_{xy}}{\sigma_{xx} - \sigma_{yy}}\right)$$
+当 $\sigma_{xx} = \sigma_{yy}$ 时需要特殊处理（各向同性点）</p>
+</li>
+<li>
+<p><strong>流线积分</strong>（RK4方法）：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>给定起点 (x₀, y₀)
+for i = 0 to N:
+    k₁ = h <span class="gs">* [cos(θ(xᵢ, yᵢ)), sin(θ(xᵢ, yᵢ))]</span>
+<span class="gs">    k₂ = h *</span> [cos(θ(xᵢ + k₁/2)), sin(θ(xᵢ + k₁/2))]
+    k₃ = h <span class="gs">* [cos(θ(xᵢ + k₂/2)), sin(θ(xᵢ + k₂/2))]</span>
+<span class="gs">    k₄ = h *</span> [cos(θ(xᵢ + k₃)), sin(θ(xᵢ + k₃))]
+    (xᵢ₊₁, yᵢ₊₁) = (xᵢ, yᵢ) + (k₁ + 2k₂ + 2k₃ + k₄)/6
+</code></pre></div>
+
+<ol start="3">
+<li>
+<p><strong>数值稳定性问题</strong>：
+   - <strong>奇点检测</strong>：$|\nabla \theta| &gt; threshold$ 表示奇点附近
+   - <strong>步长自适应</strong>：在高曲率区域减小步长
+   - <strong>方向场平滑</strong>：使用Gaussian滤波预处理
+   - <strong>终止条件</strong>：到达边界或形成闭环</p>
+</li>
+<li>
+<p><strong>填充策略</strong>：
+   - 从种子点开始生成流线
+   - 横向偏置距离 $d$ 生成平行流线
+   - 使用Voronoi图确定流线覆盖区域</p>
+</li>
+</ol>
+</details>
+<p><strong>习题10.7</strong>（开放性问题）如何将机器学习方法应用于路径规划优化？设计一个基于强化学习的填充策略。</p>
+<details>
+<summary>提示</summary>
+<p>定义状态空间（当前位置、已填充区域）、动作空间（下一步方向）、奖励函数（效率、质量）。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>强化学习框架设计：</p>
+<ol>
+<li>
+<p><strong>状态空间</strong> $s \in S$：
+   - 当前喷头位置 $(x, y)$
+   - 局部已填充密度图（如 $32 \times 32$ 网格）
+   - 剩余未填充区域的几何特征
+   - 当前层的打印时间</p>
+</li>
+<li>
+<p><strong>动作空间</strong> $a \in A$：
+   - 离散：8个方向 + 跳转
+   - 连续：$(dx, dy)$ 速度向量</p>
+</li>
+<li>
+<p><strong>奖励函数</strong> $R(s, a, s')$：
+$$R = \alpha \cdot coverage + \beta \cdot (-time) + \gamma \cdot quality + \delta \cdot smoothness$$</p>
+</li>
+</ol>
+<p>其中：</p>
+<ul>
+<li>$coverage$：新填充面积</li>
+<li>$time$：路径长度（负奖励）</li>
+<li>$quality$：局部密度均匀性</li>
+<li>$smoothness$：路径曲率惩罚</li>
+</ul>
+<ol start="4">
+<li>
+<p><strong>网络架构</strong>（PPO算法）：
+   - 输入：状态编码（CNN处理密度图）
+   - Actor网络：输出动作概率分布
+   - Critic网络：估计值函数 $V(s)$</p>
+</li>
+<li>
+<p><strong>训练策略</strong>：
+   - 课程学习：从简单形状到复杂形状
+   - 域随机化：不同的几何形状
+   - 模仿学习：使用传统算法生成的路径作为初始示范</p>
+</li>
+<li>
+<p><strong>优势</strong>：
+   - 自适应不同几何形状
+   - 考虑全局最优而非贪心
+   - 可学习特定打印机的特性</p>
+</li>
+</ol>
+</details>
+<h2 id="_5">常见陷阱与错误</h2>
+<ol>
+<li>
+<p><strong>浮点精度问题</strong>
+   - <strong>错误</strong>：直接使用浮点坐标进行几何运算
+   - <strong>正确</strong>：转换为整数坐标或使用精确算术谓词
+   - <strong>调试</strong>：检查 orient2d 测试的一致性</p>
+</li>
+<li>
+<p><strong>自相交处理</strong>
+   - <strong>错误</strong>：忽略偏置操作产生的自相交
+   - <strong>正确</strong>：使用布尔运算或Vatti算法处理
+   - <strong>调试</strong>：可视化中间结果，检查拓扑一致性</p>
+</li>
+<li>
+<p><strong>Voronoi图退化情况</strong>
+   - <strong>错误</strong>：假设Voronoi图总是良好定义的
+   - <strong>正确</strong>：处理共圆点、共线点等退化情况
+   - <strong>调试</strong>：添加微小扰动打破对称性</p>
+</li>
+<li>
+<p><strong>空间填充曲线的边界处理</strong>
+   - <strong>错误</strong>：直接裁剪Hilbert曲线到任意形状
+   - <strong>正确</strong>：自适应四叉树分解，只在内部单元生成曲线
+   - <strong>调试</strong>：检查边界单元的连通性</p>
+</li>
+<li>
+<p><strong>TSP近似算法的初始解</strong>
+   - <strong>错误</strong>：随机选择起始点
+   - <strong>正确</strong>：选择几何中心或进行多次尝试
+   - <strong>调试</strong>：比较不同起始点的结果</p>
+</li>
+<li>
+<p><strong>梯度填充的离散化误差</strong>
+   - <strong>错误</strong>：直接映射连续密度到离散线距
+   - <strong>正确</strong>：使用误差扩散或抖动技术
+   - <strong>调试</strong>：计算实际密度与目标密度的偏差</p>
+</li>
+</ol>
+<h2 id="_6">最佳实践检查清单</h2>
+<h3 id="_7">算法选择</h3>
+<ul>
+<li>[ ] 根据几何复杂度选择合适的填充模式</li>
+<li>[ ] 考虑打印时间vs质量的权衡</li>
+<li>[ ] 评估各向同性vs各向异性需求</li>
+<li>[ ] 检查是否需要支撑结构</li>
+</ul>
+<h3 id="_8">数值鲁棒性</h3>
+<ul>
+<li>[ ] 使用整数坐标或精确算术</li>
+<li>[ ] 处理所有退化情况</li>
+<li>[ ] 添加epsilon容差但保持一致性</li>
+<li>[ ] 验证拓扑不变量（欧拉特征数等）</li>
+</ul>
+<h3 id="_9">性能优化</h3>
+<ul>
+<li>[ ] 使用空间索引结构（KD树、R树）</li>
+<li>[ ] 实现增量式算法避免重复计算</li>
+<li>[ ] 并行化独立的区域填充</li>
+<li>[ ] 缓存中间结果（如Voronoi图）</li>
+</ul>
+<h3 id="_10">质量保证</h3>
+<ul>
+<li>[ ] 检查路径连续性（无跳跃）</li>
+<li>[ ] 验证覆盖完整性（无空隙）</li>
+<li>[ ] 限制最大/最小线距</li>
+<li>[ ] 平滑急转弯（限制加速度）</li>
+</ul>
+<h3 id="_11">工程实践</h3>
+<ul>
+<li>[ ] 参数化所有阈值和常数</li>
+<li>[ ] 提供可视化调试输出</li>
+<li>[ ] 记录算法失败情况和原因</li>
+<li>[ ] 支持增量式修改（局部重新规划）</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter9.html" class="nav-link prev">← 第9章：切片算法与支撑生成</a><a href="./chapter11.html" class="nav-link next">第11章：误差分析与补偿 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

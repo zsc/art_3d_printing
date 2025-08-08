@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第2章：微分几何与离散算子</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class="active"><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class=""><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class=""><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class=""><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class=""><a href="./chapter21.html">第21章：深度生成模型</a></li><li class=""><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class=""><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="2">第2章：微分几何与离散算子</h1>
+<p>本章深入探讨三维曲面的微分几何性质及其离散化方法。我们将从连续理论出发，系统推导离散算子的构造方法，重点关注数值稳定性和计算效率。这些基础工具是网格处理、形状分析和物理仿真的核心，也是理解现代几何深度学习的关键。</p>
+<h2 id="21">2.1 曲率计算：平均曲率、高斯曲率、主曲率</h2>
+<h3 id="211">2.1.1 连续曲率理论</h3>
+<p>对于参数曲面 $\mathbf{r}(u,v): \Omega \subset \mathbb{R}^2 \to \mathbb{R}^3$，第一基本形式和第二基本形式定义为：</p>
+<p>$$\mathbf{I} = \begin{pmatrix} E &amp; F \\ F &amp; G \end{pmatrix} = \begin{pmatrix} \langle \mathbf{r}_u, \mathbf{r}_u \rangle &amp; \langle \mathbf{r}_u, \mathbf{r}_v \rangle \\ \langle \mathbf{r}_u, \mathbf{r}_v \rangle &amp; \langle \mathbf{r}_v, \mathbf{r}_v \rangle \end{pmatrix}$$</p>
+<p>$$\mathbf{II} = \begin{pmatrix} L &amp; M \\ M &amp; N \end{pmatrix} = \begin{pmatrix} \langle \mathbf{r}_{uu}, \mathbf{n} \rangle &amp; \langle \mathbf{r}_{uv}, \mathbf{n} \rangle \\ \langle \mathbf{r}_{uv}, \mathbf{n} \rangle &amp; \langle \mathbf{r}_{vv}, \mathbf{n} \rangle \end{pmatrix}$$
+其中 $\mathbf{n} = \frac{\mathbf{r}_u \times \mathbf{r}_v}{|\mathbf{r}_u \times \mathbf{r}_v|}$ 是单位法向量。</p>
+<p>第一基本形式刻画了曲面的内蕴几何，决定了曲面上的长度、角度和面积元素：</p>
+<ul>
+<li>弧长元素：$ds^2 = E du^2 + 2F du dv + G dv^2$</li>
+<li>面积元素：$dA = \sqrt{EG - F^2} \, du \, dv$</li>
+<li>夹角余弦：$\cos\theta = \frac{E du_1 du_2 + F(du_1 dv_2 + du_2 dv_1) + G dv_1 dv_2}{\sqrt{(E du_1^2 + 2F du_1 dv_1 + G dv_1^2)(E du_2^2 + 2F du_2 dv_2 + G dv_2^2)}}$</li>
+</ul>
+<p>第二基本形式描述了曲面在三维空间中的弯曲程度，与法向量密切相关。对于曲面上的曲线 $\gamma(t) = \mathbf{r}(u(t), v(t))$，其法曲率为：
+$$\kappa_n = \frac{\mathbf{II}(\dot{\gamma}, \dot{\gamma})}{\mathbf{I}(\dot{\gamma}, \dot{\gamma})} = \frac{L \dot{u}^2 + 2M \dot{u}\dot{v} + N \dot{v}^2}{E \dot{u}^2 + 2F \dot{u}\dot{v} + G \dot{v}^2}$$
+形状算子（Weingarten映射）为：
+$$\mathbf{S} = -\mathbf{I}^{-1}\mathbf{II} = -\frac{1}{EG-F^2}\begin{pmatrix} G &amp; -F \\ -F &amp; E \end{pmatrix}\begin{pmatrix} L &amp; M \\ M &amp; N \end{pmatrix}$$
+形状算子 $\mathbf{S}$ 是切空间到自身的线性映射，描述了法向量沿切方向的变化率：
+$$\mathbf{S}(\mathbf{v}) = -\nabla_\mathbf{v} \mathbf{n}$$
+主曲率 $\kappa_1, \kappa_2$ 是形状算子的特征值，满足特征方程：
+$$\det(\mathbf{S} - \kappa\mathbf{I}) = \kappa^2 - 2H\kappa + K = 0$$
+对应的特征向量给出主方向，它们相互正交且沿这些方向法曲率达到极值。</p>
+<p><strong>高斯曲率</strong>（内蕴不变量，Theorema Egregium）：
+$$K = \kappa_1 \kappa_2 = \det(\mathbf{S}) = \frac{LN - M^2}{EG - F^2}$$
+<strong>平均曲率</strong>（外蕴量，与嵌入相关）：
+$$H = \frac{\kappa_1 + \kappa_2}{2} = \frac{1}{2}\text{tr}(\mathbf{S}) = \frac{EN + GL - 2FM}{2(EG - F^2)}$$
+<strong>曲率的几何意义</strong>：</p>
+<ul>
+<li>$K &gt; 0$：椭圆点（局部像球面）</li>
+<li>$K &lt; 0$：双曲点（局部像马鞍）</li>
+<li>$K = 0$：抛物点（局部像柱面）</li>
+<li>$H = 0$：极小曲面（局部面积最小）</li>
+</ul>
+<h3 id="212">2.1.2 离散曲率：顶点方法</h3>
+<p>对于三角网格顶点 $v_i$，设其1-邻域为 $N(i)$，相邻三角形集合为 $T(i)$。离散曲率的计算基于将连续理论离散化到分片线性函数空间。</p>
+<p><strong>离散高斯曲率（角度缺陷）</strong>：
+$$K_i = \frac{1}{A_i}\left(2\pi - \sum_{j \in T(i)} \theta_j^i\right) = \frac{\Theta_i}{A_i}$$
+这里 $\Theta_i$ 称为角度缺陷（angle defect），几何直观是：</p>
+<ul>
+<li>平坦区域：角度和 = $2\pi$，$K = 0$</li>
+<li>凸起区域：角度和 &lt; $2\pi$，$K &gt; 0$（如球面顶点）</li>
+<li>凹陷区域：角度和 &gt; $2\pi$，$K &lt; 0$（如马鞍点）</li>
+</ul>
+<p><strong>理论基础</strong>：离散Gauss-Bonnet定理保证了这种定义的正确性。对于闭合网格：
+$$\sum_{i \in V} K_i A_i = 2\pi \chi(M)$$
+其中 $\chi(M) = |V| - |E| + |F|$ 是Euler特征数。</p>
+<p>其中 $\theta_j^i$ 是三角形 $j$ 在顶点 $i$ 处的内角，$A_i$ 是混合Voronoi面积（mixed Voronoi area），考虑了钝角三角形的特殊情况：
+$$A_i = \begin{cases}
+\frac{1}{8}\sum_{j,k \in N(i)} (\cot\alpha_{jk} + \cot\beta_{jk})||v_j - v_k||^2 &amp; \text{所有角都是锐角} \\
+\frac{1}{2}\text{Area}(T) &amp; \text{钝角在}v_i\text{处} \\
+\frac{1}{4}\text{Area}(T) &amp; \text{钝角不在}v_i\text{处}
+\end{cases}$$
+<strong>Voronoi面积的几何意义</strong>：</p>
+<ul>
+<li>锐角情况：Voronoi区域完全在三角形内部，使用垂心分割</li>
+<li>钝角在$v_i$：顶点拥有三角形的一半面积</li>
+<li>钝角不在$v_i$：顶点只分配到四分之一面积</li>
+</ul>
+<p>这种处理保证了面积元素的非负性和分割的完备性（所有面积都被分配）。</p>
+<p><strong>离散平均曲率向量（Laplace-Beltrami）</strong>：
+$$\mathbf{H}_i = \frac{1}{2A_i}\sum_{j \in N(i)} (\cot\alpha_{ij} + \cot\beta_{ij})(v_j - v_i)$$
+其中 $\alpha_{ij}$、$\beta_{ij}$ 是边 $(v_i, v_j)$ 对面的两个角。这个公式来源于离散Laplace-Beltrami算子应用于坐标函数：
+$$\Delta \mathbf{r} = -2H\mathbf{n}$$
+平均曲率标量：$H_i = \frac{1}{2}||\mathbf{H}_i||$，符号由 $\langle \mathbf{H}_i, \mathbf{n}_i \rangle$ 决定。</p>
+<p><strong>法向量计算</strong>：顶点法向量通常通过面积加权平均：
+$$\mathbf{n}_i = \frac{\sum_{T \in T(i)} \text{Area}(T) \cdot \mathbf{n}_T}{||\sum_{T \in T(i)} \text{Area}(T) \cdot \mathbf{n}_T||}$$
+其中 $\mathbf{n}_T = \frac{(v_j - v_i) \times (v_k - v_i)}{||(v_j - v_i) \times (v_k - v_i)||}$ 是三角形 $T = (v_i, v_j, v_k)$ 的单位法向量。</p>
+<h3 id="213">2.1.3 主曲率与主方向计算</h3>
+<p>给定平均曲率 $H$ 和高斯曲率 $K$，主曲率通过求解二次方程得到：
+$$\kappa_{1,2} = H \pm \sqrt{H^2 - K}$$
+注意当 $H^2 &lt; K$ 时，上述公式可能出现复数，表明数值误差导致不一致。实际计算中需要：
+$$\kappa_{1,2} = H \pm \sqrt{\max(0, H^2 - K)}$$
+<strong>主方向计算方法一：二次型拟合</strong></p>
+<p>构造局部坐标系并拟合二次型。设顶点 $v_i$ 的邻域点投影到切平面，拟合二次曲面：
+$$z = \frac{1}{2}(a x^2 + 2b xy + c y^2)$$
+最小二乘问题：
+$$\min_{a,b,c} \sum_{j \in N(i)} w_j (z_j - \frac{1}{2}(a x_j^2 + 2b x_j y_j + c y_j^2))^2$$
+其中权重 $w_j = \exp(-||v_j - v_i||^2/\sigma^2)$ 或 $w_j = 1/||v_j - v_i||^2$。</p>
+<p>形状算子在局部坐标系下为：
+$$\mathbf{S}_{local} = \begin{pmatrix} a &amp; b \\ b &amp; c \end{pmatrix}$$
+其特征向量给出主方向在切平面上的投影。</p>
+<p><strong>主方向计算方法二：曲率张量</strong></p>
+<p>直接构造曲率张量：
+$$\mathbf{T} = \sum_{e \in E(i)} \kappa_e^n \mathbf{d}_e \otimes \mathbf{d}_e$$
+其中 $\kappa_e^n$ 是边 $e$ 的法曲率，$\mathbf{d}_e$ 是边方向在切平面上的投影。张量 $\mathbf{T}$ 的特征分解给出主方向和主曲率。</p>
+<h3 id="214">2.1.4 张量投票方法</h3>
+<p>对于噪声数据，使用张量投票提高鲁棒性。每个三角形贡献一个曲率张量：
+$$\mathbf{C}_T = \text{Area}(T) \cdot \kappa_T \mathbf{n}_T \otimes \mathbf{n}_T$$
+顶点处的曲率张量为邻域加权平均：
+$$\mathbf{C}_i = \frac{1}{\sum_T w_T} \sum_{T \in N(i)} w_T \mathbf{C}_T$$
+其中权重 $w_T = \exp(-d^2/\sigma^2)$，$d$ 是三角形重心到顶点的距离。</p>
+<h2 id="22-laplace-beltrami">2.2 离散Laplace-Beltrami算子</h2>
+<h3 id="221-laplace-beltrami">2.2.1 连续Laplace-Beltrami算子</h3>
+<p>对于黎曼流形 $(M, g)$ 上的光滑函数 $f$，Laplace-Beltrami算子定义为：
+$$\Delta_g f = \text{div}(\nabla f) = \frac{1}{\sqrt{|g|}}\partial_i\left(\sqrt{|g|}g^{ij}\partial_j f\right)$$
+在参数化曲面上：
+$$\Delta f = \frac{1}{\sqrt{EG-F^2}}\left[\frac{\partial}{\partial u}\left(\frac{G f_u - F f_v}{\sqrt{EG-F^2}}\right) + \frac{\partial}{\partial v}\left(\frac{E f_v - F f_u}{\sqrt{EG-F^2}}\right)\right]$$</p>
+<h3 id="222">2.2.2 余切公式推导</h3>
+<p>通过有限元方法，在分片线性函数空间上离散化。考虑三角网格上的分片线性函数，其在每个三角形内是线性的。</p>
+<p><strong>Galerkin离散化</strong>：寻找弱形式解
+$$\int_M \langle \nabla u, \nabla \phi_i \rangle dA = \int_M f \phi_i dA$$
+其中 $\phi_i$ 是顶点 $i$ 处的帽函数（hat function），在顶点 $i$ 处为1，在其他顶点为0。</p>
+<p><strong>余切权重推导</strong>：对于边 $(v_i, v_j)$ 共享的两个三角形，计算梯度内积的积分：
+$$\int_M \langle \nabla \phi_i, \nabla \phi_j \rangle dA = -\frac{1}{2}(\cot\alpha_{ij} + \cot\beta_{ij})$$
+因此，余切权重为：
+$$w_{ij} = \frac{1}{2}(\cot\alpha_{ij} + \cot\beta_{ij})$$
+其中 $\alpha_{ij}$ 和 $\beta_{ij}$ 是边 $(i,j)$ 对面的两个角。</p>
+<p><strong>几何解释</strong>：</p>
+<ul>
+<li>余切权重反映了边的"双重性"：原始边与对偶边的关系</li>
+<li>在Delaunay三角化中，所有权重非负</li>
+<li>权重大小与边在Voronoi图中的对偶边长度成正比</li>
+</ul>
+<p>离散Laplace-Beltrami算子矩阵：
+$$L_{ij} = \begin{cases}
+-\sum_{k \in N(i)} w_{ik} &amp; i = j \\
+w_{ij} &amp; j \in N(i) \\
+0 &amp; \text{otherwise}
+\end{cases}$$</p>
+<h3 id="223">2.2.3 质量矩阵与归一化</h3>
+<p>质量矩阵 $\mathbf{M}$ 对应于内积的离散化：
+$$\langle f, g \rangle = \int_M fg \, dA \approx \mathbf{f}^T \mathbf{M} \mathbf{g}$$
+<strong>质量矩阵的构造方法</strong>：</p>
+<ol>
+<li><strong>集中质量矩阵（Lumped Mass Matrix）</strong>：
+$$M_{ii} = A_i = \sum_{T \in T(i)} \frac{\text{Area}(T)}{3}$$</li>
+</ol>
+<ul>
+<li>对角矩阵，计算高效</li>
+<li>使用Voronoi面积可提高精度</li>
+<li>保证正定性</li>
+</ul>
+<ol start="2">
+<li><strong>一致质量矩阵（Consistent Mass Matrix）</strong>：
+$$M_{ij} = \begin{cases}
+   \frac{1}{6}\sum_{T \in T(i)} \text{Area}(T) &amp; i = j \\
+   \frac{1}{12}\sum_{T \in T(i,j)} \text{Area}(T) &amp; j \in N(i) \\
+   0 &amp; \text{otherwise}
+   \end{cases}$$</li>
+</ol>
+<ul>
+<li>来自有限元理论</li>
+<li>更高的精度但需要矩阵求逆</li>
+<li>保持对称正定性</li>
+</ul>
+<ol start="3">
+<li><strong>混合Voronoi质量（Meyer方法）</strong>：
+   使用2.1.2节中定义的混合Voronoi面积$A_i$</li>
+</ol>
+<p><strong>归一化Laplacian</strong>：</p>
+<ul>
+<li>几何Laplacian：$\tilde{\mathbf{L}} = \mathbf{M}^{-1}\mathbf{L}$</li>
+<li>对称归一化：$\mathbf{L}_{sym} = \mathbf{M}^{-1/2}\mathbf{L}\mathbf{M}^{-1/2}$</li>
+<li>组合Laplacian：$\mathbf{L}_{comb} = \mathbf{D} - \mathbf{A}$（图理论）</li>
+</ul>
+<p><strong>数值考虑</strong>：</p>
+<ul>
+<li>集中质量矩阵避免了矩阵求逆</li>
+<li>一致质量矩阵提供更好的收敛性</li>
+<li>选择取决于应用：谱分析通常用对称归一化</li>
+</ul>
+<h3 id="224">2.2.4 谱分析与特征函数</h3>
+<p>Laplace-Beltrami算子的特征值问题：
+$$\Delta \phi_k = -\lambda_k \phi_k$$
+离散形式：
+$$\mathbf{L}\boldsymbol{\phi}_k = \lambda_k \mathbf{M}\boldsymbol{\phi}_k$$
+特征值 $0 = \lambda_0 &lt; \lambda_1 \leq \lambda_2 \leq \cdots$ 反映几何信息：</p>
+<ul>
+<li>$\lambda_0 = 0$ 对应常函数</li>
+<li>$\lambda_1$ 与等周常数相关（Cheeger不等式）</li>
+<li>谱序列编码形状的多尺度信息</li>
+</ul>
+<p><strong>Weyl渐近公式</strong>（2D情况）：
+$$\lambda_k \sim \frac{4\pi k}{\text{Area}(M)}$$</p>
+<h2 id="23">2.3 测地线与热核方法</h2>
+<h3 id="231">2.3.1 测地线的变分原理</h3>
+<p>测地线是曲面上长度泛函的临界点。对于参数曲线 $\gamma(t)$，长度泛函为：
+$$L[\gamma] = \int_0^1 \sqrt{\langle \dot{\gamma}, \dot{\gamma} \rangle_g} dt$$
+Euler-Lagrange方程（测地线方程）：
+$$\ddot{\gamma}^k + \Gamma^k_{ij}\dot{\gamma}^i\dot{\gamma}^j = 0$$
+其中 $\Gamma^k_{ij}$ 是Christoffel符号。</p>
+<h3 id="232-fast-marching-method">2.3.2 离散测地线：Fast Marching Method</h3>
+<p>Eikonal方程描述测地距离场 $u(x)$：
+$$|\nabla u| = 1, \quad u(x_0) = 0$$
+这是一个Hamilton-Jacobi型偏微分方程，其解给出从源点$x_0$到任意点的测地距离。</p>
+<p><strong>离散化策略</strong>：在三角网格上，使用更新规则：
+$$u_i = \min_{T \in T(i)} \text{LocalUpdate}(T, u)$$
+<strong>局部更新公式</strong>：对于三角形$T = (v_i, v_j, v_k)$，假设$u_j$和$u_k$已知，更新$u_i$：</p>
+<ol>
+<li>
+<p><strong>锐角情况</strong>：信息从三角形内部传播
+$$u_i = u_j \cos\theta_{ij} + u_k \cos\theta_{ik} + \sqrt{(u_j \cos\theta_{ij} + u_k \cos\theta_{ik})^2 - (u_j^2 + u_k^2 - d_{jk}^2)}$$</p>
+</li>
+<li>
+<p><strong>钝角情况</strong>：信息沿边传播
+$$u_i = \min(u_j + d_{ij}, u_k + d_{ik})$$
+<strong>算法流程</strong>：</p>
+</li>
+<li>
+<p>初始化：源点距离为0，其他为∞</p>
+</li>
+<li>将源点加入优先队列</li>
+<li>循环直到队列为空：
+   - 提取最小距离顶点
+   - 更新所有邻居
+   - 将更新的顶点加入队列</li>
+</ol>
+<p><strong>复杂度分析</strong>：</p>
+<ul>
+<li>时间：$O(n \log n)$，使用最小堆</li>
+<li>空间：$O(n)$存储距离值</li>
+<li>精度：一阶精确（可扩展到高阶）</li>
+</ul>
+<h3 id="233">2.3.3 热核与热方程</h3>
+<p>热方程连接了扩散过程与几何：
+$$\frac{\partial u}{\partial t} = \Delta u$$
+热核 $k_t(x, y)$ 是基本解，满足：
+$$u(x, t) = \int_M k_t(x, y)u_0(y)dy$$
+谱展开：
+$$k_t(x, y) = \sum_{i=0}^{\infty} e^{-\lambda_i t}\phi_i(x)\phi_i(y)$$
+<strong>热核签名（HKS）</strong>：
+$$\text{HKS}(x, t) = k_t(x, x) = \sum_{i=0}^{\infty} e^{-\lambda_i t}\phi_i(x)^2$$</p>
+<h3 id="234">2.3.4 测地距离的热方法</h3>
+<p>Varadhan公式：
+$$d(x, y)^2 = \lim_{t \to 0^+} -4t \log k_t(x, y)$$
+实际计算步骤：</p>
+<ol>
+<li>求解热方程：$(\mathbf{M} - t\mathbf{L})\mathbf{u} = \mathbf{u}_0$</li>
+<li>计算归一化梯度场：$\mathbf{X} = -\nabla u / |\nabla u|$</li>
+<li>求解Poisson方程：$\Delta \phi = \nabla \cdot \mathbf{X}$</li>
+</ol>
+<p>时间参数选择：$t = h^2$，其中 $h$ 是平均边长。</p>
+<h2 id="24-lscmabf">2.4 曲面参数化：LSCM、ABF++</h2>
+<h3 id="241">2.4.1 参数化的数学框架</h3>
+<p>曲面参数化寻找双射 $\phi: M \to \Omega \subset \mathbb{R}^2$，使得某种失真度量最小。对于三角网格，参数化将每个顶点 $v_i \in \mathbb{R}^3$ 映射到 $u_i \in \mathbb{R}^2$。</p>
+<p><strong>失真度量</strong>：</p>
+<ul>
+<li><strong>共形失真</strong>：保角映射，$\mathbf{J}^T\mathbf{J} = \sigma^2\mathbf{I}$</li>
+<li><strong>等距失真</strong>：保长映射，$\mathbf{J}^T\mathbf{J} = \mathbf{I}$</li>
+<li><strong>等面积失真</strong>：保面积映射，$\det(\mathbf{J}) = 1$</li>
+</ul>
+<p>其中 $\mathbf{J}$ 是参数化的Jacobian矩阵。</p>
+<h3 id="242-lscm">2.4.2 最小二乘共形映射（LSCM）</h3>
+<p>LSCM最小化共形能量：
+$$E_{LSCM} = \sum_T \text{Area}(T) \cdot ||\mathbf{J}_T - \mathbf{R}_T||_F^2$$
+其中 $\mathbf{R}_T$ 是最接近 $\mathbf{J}_T$ 的旋转矩阵。</p>
+<p>对于三角形 $T = (v_1, v_2, v_3)$，局部参数化的线性表示：
+$$u(x) = u_1\phi_1(x) + u_2\phi_2(x) + u_3\phi_3(x)$$
+其中 $\phi_i$ 是重心坐标。梯度为：
+$$\nabla u = \sum_{i=1}^3 u_i \nabla \phi_i$$
+<strong>复数表示</strong>：令 $w_i = u_i + iv_i$，共形条件等价于：
+$$\frac{\partial w}{\partial \bar{z}} = 0$$
+离散化后得到线性系统：
+$$\mathbf{A}^T\mathbf{A}\mathbf{w} = \mathbf{0}$$
+其中 $\mathbf{A}$ 是稀疏矩阵，每个三角形贡献一个 $2 \times 2n$ 的块。</p>
+<p><strong>边界条件</strong>：</p>
+<ul>
+<li>自由边界：最小化总能量</li>
+<li>固定边界：指定边界顶点位置（至少固定2个顶点避免平凡解）</li>
+</ul>
+<h3 id="243-abf">2.4.3 基于角度的扁平化（ABF++）</h3>
+<p>ABF方法直接优化角度变量，保证参数化的有效性（无翻转）。</p>
+<p><strong>角度约束</strong>：</p>
+<ul>
+<li>三角形内角和：$\alpha_1^T + \alpha_2^T + \alpha_3^T = \pi$</li>
+<li>顶点周围角度和：$\sum_{T \in N(v)} \alpha_v^T = 2\pi$（内部顶点）</li>
+</ul>
+<p><strong>能量函数</strong>：
+$$E_{ABF} = \sum_T \sum_{i=1}^3 (\alpha_i^T - \beta_i^T)^2 / \beta_i^T$$
+其中 $\beta_i^T$ 是原始网格中的角度。</p>
+<p><strong>ABF++改进</strong>：</p>
+<ol>
+<li>使用对数角度 $\log(\alpha/\beta)$ 提高数值稳定性</li>
+<li>引入辅助变量简化约束</li>
+<li>使用牛顿法求解，Hessian矩阵具有特殊结构</li>
+</ol>
+<p><strong>重建坐标</strong>：给定优化后的角度，通过以下步骤重建2D坐标：</p>
+<ol>
+<li>计算边长比例因子（使用正弦定理）</li>
+<li>固定一个三角形的位置</li>
+<li>逐步传播确定其他顶点位置</li>
+</ol>
+<h3 id="244">2.4.4 其他参数化方法</h3>
+<p><strong>Mean Value Coordinates</strong>：
+$$w_{ij} = \frac{\tan(\theta_{ij}^-/2) + \tan(\theta_{ij}^+/2)}{||v_i - v_j||}$$
+能量函数：
+$$E_{MVC} = \sum_i ||\sum_j w_{ij}(u_j - u_i)||^2$$
+<strong>As-Rigid-As-Possible (ARAP)</strong>：
+两步迭代：</p>
+<ol>
+<li>局部步：固定顶点位置，优化每个三角形的旋转</li>
+<li>全局步：固定旋转，求解顶点位置</li>
+</ol>
+<p>能量函数：
+$$E_{ARAP} = \sum_{(i,j) \in E} w_{ij}||(u_i - u_j) - \mathbf{R}_i(v_i - v_j)||^2$$</p>
+<h2 id="25">2.5 离散外微分与余切权重</h2>
+<h3 id="251">2.5.1 外微分形式基础</h3>
+<p>离散外微分（DEC）提供了微分几何的离散模拟。在单纯复形上：</p>
+<ul>
+<li>0-形式：顶点上的标量函数</li>
+<li>1-形式：边上的值（切向量的对偶）</li>
+<li>2-形式：面上的值（面积元素）</li>
+</ul>
+<p><strong>外导数算子</strong>：</p>
+<ul>
+<li>$d^0: \Omega^0 \to \Omega^1$：梯度</li>
+<li>$d^1: \Omega^1 \to \Omega^2$：旋度</li>
+<li>$d^2: \Omega^2 \to \Omega^3$：散度</li>
+</ul>
+<p>满足 $d \circ d = 0$（正合性）。</p>
+<h3 id="252">2.5.2 离散微分算子构造</h3>
+<p><strong>梯度算子</strong>（0-形式到1-形式）：
+对于边 $e = [v_i, v_j]$：
+$$(d^0 f)_e = f_j - f_i$$
+矩阵形式：$\mathbf{d}^0$ 是 $|E| \times |V|$ 的关联矩阵。</p>
+<p><strong>旋度算子</strong>（1-形式到2-形式）：
+对于三角形 $T$ 及其边界 $\partial T = e_1 + e_2 + e_3$：
+$$(d^1 \omega)_T = \sum_{e \in \partial T} \text{sign}(e, T) \cdot \omega_e$$
+<strong>散度算子</strong>：通过对偶关系定义
+$$\text{div} = -\star d \star$$</p>
+<h3 id="253-hodge">2.5.3 Hodge星算子与内积</h3>
+<p>Hodge星算子 $\star: \Omega^k \to \Omega^{n-k}$ 建立对偶关系。</p>
+<p><strong>离散Hodge星</strong>：</p>
+<ul>
+<li>0-形式：$\star_0 = \mathbf{M}$（质量矩阵）</li>
+<li>1-形式：$(\star_1)_{ee} = (\cot\alpha_e + \cot\beta_e)/2$</li>
+<li>2-形式：$(\star_2)_{TT} = 1/\text{Area}(T)$</li>
+</ul>
+<p><strong>内积结构</strong>：
+$$\langle \alpha, \beta \rangle = \int_M \alpha \wedge \star\beta$$
+离散版本：
+$$\langle \alpha, \beta \rangle_d = \alpha^T \star_k \beta$$</p>
+<h3 id="254">2.5.4 余切权重的几何意义</h3>
+<p>余切权重出现在多个背景下：</p>
+<ol>
+<li><strong>Dirichlet能量最小化</strong>：$E[f] = \frac{1}{2}\int_M |\nabla f|^2$</li>
+<li><strong>调和映射</strong>：临界点满足 $\Delta u = 0$</li>
+<li><strong>离散共形理论</strong>：保角变换的线性化</li>
+</ol>
+<p><strong>与其他权重的比较</strong>：</p>
+<ul>
+<li><strong>组合Laplacian</strong>：$w_{ij} = 1$（图Laplacian）</li>
+<li><strong>归一化权重</strong>：$w_{ij} = 1/||v_i - v_j||$</li>
+<li><strong>Mean value权重</strong>：更稳定但非对称</li>
+</ul>
+<p><strong>数值考虑</strong>：</p>
+<ul>
+<li>钝角三角形导致负权重</li>
+<li>Delaunay三角化最大化最小角</li>
+<li>内在Delaunay通过边翻转改善权重</li>
+</ul>
+<h3 id="255-helmholtz-hodge">2.5.5 向量场设计与Helmholtz-Hodge分解</h3>
+<p><strong>离散向量场</strong>：定义在面上或边上</p>
+<ul>
+<li>面向量场：每个三角形一个切向量</li>
+<li>边向量场：1-形式的原始表示</li>
+</ul>
+<p><strong>Helmholtz-Hodge分解</strong>：
+任意向量场 $\mathbf{v}$ 可分解为：
+$$\mathbf{v} = \nabla f + \nabla \times \mathbf{A} + \mathbf{h}$$
+其中：</p>
+<ul>
+<li>$\nabla f$：无旋分量（梯度场）</li>
+<li>$\nabla \times \mathbf{A}$：无散分量（旋度场）</li>
+<li>$\mathbf{h}$：调和分量</li>
+</ul>
+<p>离散计算：</p>
+<ol>
+<li>投影到无旋空间：求解 $\Delta f = \nabla \cdot \mathbf{v}$</li>
+<li>投影到无散空间：求解 $\Delta \mathbf{A} = \nabla \times \mathbf{v}$</li>
+<li>调和分量：$\mathbf{h} = \mathbf{v} - \nabla f - \nabla \times \mathbf{A}$</li>
+</ol>
+<h2 id="_1">本章小结</h2>
+<p>本章系统介绍了微分几何在离散网格上的实现方法：</p>
+<p><strong>核心概念</strong>：</p>
+<ol>
+<li><strong>离散曲率</strong>：通过角度缺陷和Laplace-Beltrami算子计算高斯曲率和平均曲率</li>
+<li><strong>离散Laplacian</strong>：余切权重公式 $w_{ij} = \frac{1}{2}(\cot\alpha_{ij} + \cot\beta_{ij})$</li>
+<li><strong>测地距离</strong>：Fast Marching ($O(n\log n)$) 和热方法 ($O(n)$稀疏求解)</li>
+<li><strong>曲面参数化</strong>：LSCM（共形）、ABF++（保角度）、ARAP（尽可能刚性）</li>
+<li><strong>离散外微分</strong>：提供微分几何的离散框架</li>
+</ol>
+<p><strong>关键公式汇总</strong>：</p>
+<ul>
+<li>离散高斯曲率：$K_i = \frac{1}{A_i}(2\pi - \sum_j \theta_j^i)$</li>
+<li>离散平均曲率向量：$\mathbf{H}_i = \frac{1}{2A_i}\sum_j (\cot\alpha_{ij} + \cot\beta_{ij})(v_j - v_i)$</li>
+<li>热核签名：$\text{HKS}(x,t) = \sum_i e^{-\lambda_i t}\phi_i(x)^2$</li>
+<li>LSCM能量：$E_{LSCM} = \sum_T \text{Area}(T) \cdot ||\mathbf{J}_T - \mathbf{R}_T||_F^2$</li>
+</ul>
+<p><strong>计算复杂度</strong>：</p>
+<ul>
+<li>曲率计算：$O(n)$</li>
+<li>稀疏线性系统求解：$O(n^{1.5})$（典型情况）</li>
+<li>特征值分解：$O(kn^2)$（求前$k$个特征值）</li>
+<li>Fast Marching：$O(n\log n)$</li>
+</ul>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>练习2.1</strong> 证明离散高斯曲率的角度缺陷公式满足Gauss-Bonnet定理：
+$$\sum_{i \in V} K_i A_i + \sum_{j \in \partial M} \kappa_g^j l_j = 2\pi\chi(M)$$
+其中 $\kappa_g^j$ 是边界测地曲率，$l_j$ 是边界边长，$\chi(M)$ 是Euler特征数。</p>
+<p><em>提示</em>：利用三角形内角和为$\pi$，统计每个角的贡献。</p>
+<details>
+<summary>答案</summary>
+<p>考虑闭合曲面的情况。总角度缺陷为：
+$$\sum_i K_i A_i = \sum_i (2\pi - \sum_j \theta_j^i) = 2\pi|V| - \sum_T (\alpha_T + \beta_T + \gamma_T)$$
+$$= 2\pi|V| - \pi|F| = \pi(2|V| - |F|)$$
+由Euler公式 $|V| - |E| + |F| = 2 - 2g$，其中 $|E| = \frac{3|F|}{2}$（闭合曲面），得：
+$$2|V| - |F| = 2|V| - |E| + |E| - |F| = 2\chi(M) + |E| - |F| = 2\chi(M) + \frac{|F|}{2}$$
+因此 $\sum_i K_i A_i = 2\pi\chi(M)$。</p>
+</details>
+<p><strong>练习2.2</strong> 推导三角形上分片线性函数的Dirichlet能量，验证余切权重公式。</p>
+<p><em>提示</em>：使用重心坐标表示梯度，计算 $\int_T |\nabla f|^2 dA$。</p>
+<details>
+<summary>答案</summary>
+<p>设三角形 $T$ 的顶点为 $v_1, v_2, v_3$，函数值为 $f_1, f_2, f_3$。在重心坐标下：
+$$f = f_1\lambda_1 + f_2\lambda_2 + f_3\lambda_3$$
+梯度：
+$$\nabla f = f_1\nabla\lambda_1 + f_2\nabla\lambda_2 + f_3\nabla\lambda_3$$
+其中 $\nabla\lambda_i = \frac{\mathbf{n} \times \mathbf{e}_i}{2\text{Area}(T)}$，$\mathbf{e}_i$ 是顶点 $i$ 对面的边向量。</p>
+<p>Dirichlet能量：
+$$E_T = \int_T |\nabla f|^2 dA = \text{Area}(T) \sum_{i,j} f_i f_j \langle\nabla\lambda_i, \nabla\lambda_j\rangle$$
+计算内积：
+$$\langle\nabla\lambda_i, \nabla\lambda_j\rangle = \frac{\mathbf{e}_i \cdot \mathbf{e}_j}{4\text{Area}(T)^2} = -\frac{\cot\theta_k}{2\text{Area}(T)}$$
+其中 $k$ 是 $i,j$ 之外的顶点，$\theta_k$ 是顶点 $k$ 处的角。</p>
+</details>
+<p><strong>练习2.3</strong> 实现热方法计算测地距离的算法框架（伪代码）。</p>
+<p><em>提示</em>：三个主要步骤：热扩散、归一化梯度、求解Poisson方程。</p>
+<details>
+<summary>答案</summary>
+<div class="codehilite"><pre><span></span><code><span class="k">function</span><span class="w"> </span><span class="nf">HeatMethodGeodesics</span><span class="p">(</span>mesh, source_vertex<span class="p">):</span>
+<span class="w">    </span><span class="o">//</span><span class="w"> </span><span class="n">Step</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span><span class="w"> </span>热扩散
+<span class="w">    </span><span class="n">t</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">mean_edge_length</span>^<span class="mi">2</span>
+<span class="w">    </span><span class="n">u0</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">zeros</span><span class="p">(</span><span class="n">n_vertices</span><span class="p">)</span>
+<span class="w">    </span><span class="n">u0</span><span class="p">[</span><span class="n">source_vertex</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="n">A</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">M</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t</span><span class="o">*</span><span class="n">L</span><span class="w">  </span><span class="o">//</span><span class="w"> </span><span class="n">M</span><span class="p">:</span><span class="w"> </span>质量矩阵<span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">:</span><span class="w"> </span><span class="n">Laplacian</span>
+<span class="w">    </span><span class="n">u</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">solve</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="n">u0</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span><span class="n">Step</span><span class="w"> </span><span class="mi">2</span><span class="p">:</span><span class="w"> </span>计算归一化梯度场
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">triangle</span><span class="w"> </span><span class="n">T</span><span class="p">:</span>
+<span class="w">        </span><span class="n">grad_u_T</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">compute_gradient</span><span class="p">(</span><span class="n">u</span><span class="p">,</span><span class="w"> </span><span class="n">T</span><span class="p">)</span>
+<span class="w">        </span><span class="n">X_T</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">-</span><span class="n">grad_u_T</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">||</span><span class="n">grad_u_T</span><span class="o">||</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span><span class="n">Step</span><span class="w"> </span><span class="mi">3</span><span class="p">:</span><span class="w"> </span>求解<span class="n">Poisson方程</span>
+<span class="w">    </span><span class="n">div_X</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">compute_divergence</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
+<span class="w">    </span><span class="n">phi</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">solve</span><span class="p">(</span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="n">M</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">div_X</span><span class="p">)</span>
+
+<span class="w">    </span><span class="o">//</span><span class="w"> </span>归一化使源点距离为0
+<span class="w">    </span><span class="n">phi</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">phi</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">phi</span><span class="p">[</span><span class="n">source_vertex</span><span class="p">]</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">phi</span>
+</code></pre></div>
+
+</details>
+<p><strong>练习2.4</strong> 证明LSCM参数化的共形能量等价于Cauchy-Riemann方程的离散化。</p>
+<p><em>提示</em>：使用复数表示，共形映射满足 $\frac{\partial w}{\partial \bar{z}} = 0$。</p>
+<details>
+<summary>答案</summary>
+<p>设参数化 $w = u + iv$，在复坐标下 $z = x + iy$。共形条件：
+$$\frac{\partial w}{\partial \bar{z}} = \frac{1}{2}\left(\frac{\partial w}{\partial x} + i\frac{\partial w}{\partial y}\right) = 0$$
+展开得Cauchy-Riemann方程：
+$$\frac{\partial u}{\partial x} = \frac{\partial v}{\partial y}, \quad \frac{\partial u}{\partial y} = -\frac{\partial v}{\partial x}$$
+离散化：对每个三角形，线性插值给出常梯度。设 $\mathbf{J} = [\nabla u, \nabla v]$，共形条件等价于：
+$$\mathbf{J}^T\mathbf{J} = \lambda^2 \mathbf{I}$$
+LSCM能量 $||\mathbf{J} - \mathbf{R}||^2$ 最小化时，$\mathbf{J}$ 最接近旋转矩阵（乘以缩放），即满足共形条件。</p>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>练习2.5</strong> 设计一个算法计算曲面上的Voronoi图，给定种子点集合。考虑：
+a) 如何处理非凸区域？
+b) 如何保证计算效率？
+c) 如何处理退化情况？</p>
+<p><em>提示</em>：可以使用Fast Marching的多源版本，或者热方法的叠加原理。</p>
+<details>
+<summary>答案</summary>
+<p><strong>算法1：多源Fast Marching</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">初始化所有种子点距离为0</span><span class="err">，</span><span class="n">其他为</span><span class="err">∞</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">将所有种子点加入优先队列</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">同时传播所有波前</span><span class="err">，</span><span class="n">记录最近种子点ID</span>
+<span class="mf">4.</span><span class="w"> </span><span class="n">使用标签避免重复更新</span>
+
+<span class="n">复杂度</span><span class="err">：</span><span class="n">O</span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="nb">log</span><span class="w"> </span><span class="n">n</span><span class="p">)</span>
+<span class="n">处理退化</span><span class="err">：</span><span class="n">等距点处可能出现数值误差</span><span class="err">，</span><span class="n">使用容差判断</span>
+</code></pre></div>
+
+<p><strong>算法2：热核叠加</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">对每个种子点计算热核</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">找到每个顶点的最大响应种子点</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">使用行进立方体提取Voronoi边界</span>
+
+<span class="n">优势</span><span class="err">：</span><span class="n">自然光滑</span><span class="err">，</span><span class="n">可并行计算</span>
+<span class="n">缺点</span><span class="err">：</span><span class="n">需要多次求解线性系统</span>
+</code></pre></div>
+
+<p><strong>非凸区域处理</strong>：</p>
+<ul>
+<li>测地Voronoi自动处理非凸性</li>
+<li>边界处需要特殊处理反射条件</li>
+</ul>
+</details>
+<p><strong>练习2.6</strong> 分析不同参数化方法的适用场景：
+a) 何时使用LSCM vs ABF++？
+b) 如何量化参数化质量？
+c) 如何选择边界条件？</p>
+<p><em>提示</em>：考虑共形失真、面积失真、数值稳定性、计算成本。</p>
+<details>
+<summary>答案</summary>
+<p><strong>方法选择准则</strong>：</p>
+<ol>
+<li>
+<p><strong>LSCM</strong>：
+   - 优点：线性系统，快速，保角性好
+   - 缺点：可能产生翻转，需要固定边界
+   - 适用：纹理映射，共形几何处理</p>
+</li>
+<li>
+<p><strong>ABF++</strong>：
+   - 优点：保证无翻转，角度保持好
+   - 缺点：非线性优化，较慢
+   - 适用：高质量参数化，鲁棒性要求高</p>
+</li>
+</ol>
+<p><strong>质量度量</strong>：</p>
+<ul>
+<li>共形失真：$\sigma_{max}/\sigma_{min}$（奇异值比）</li>
+<li>面积失真：$\text{Area}_{2D}/\text{Area}_{3D}$</li>
+<li>等距失真：MIPS能量</li>
+<li>组合质量：翻转三角形数量</li>
+</ul>
+<p><strong>边界选择</strong>：</p>
+<ul>
+<li>自由边界：最小化总体失真</li>
+<li>凸边界：圆形或方形，简化后续处理</li>
+<li>特征对齐：沿主方向或对称轴</li>
+</ul>
+</details>
+<p><strong>练习2.7</strong> 推导离散外微分框架下的Hodge分解算法，并分析其在向量场设计中的应用。</p>
+<p><em>提示</em>：利用正合序列 $0 \to \Omega^0 \xrightarrow{d} \Omega^1 \xrightarrow{d} \Omega^2 \to 0$。</p>
+<details>
+<summary>答案</summary>
+<p><strong>Hodge分解</strong>：
+$$\Omega^1 = \text{Im}(d^0) \oplus \text{Ker}(\Delta^1) \oplus \text{Im}(\star d^1 \star)$$</p>
+<p><strong>算法</strong>：</p>
+<ol>
+<li>梯度分量：$\omega_g = d^0(L^{-1}d^{0T}\star_1\omega)$</li>
+<li>旋度分量：$\omega_r = \star_1^{-1}d^{1T}(d^1\star_1^{-1}d^{1T})^{-1}d^1\omega$</li>
+<li>调和分量：$\omega_h = \omega - \omega_g - \omega_r$</li>
+</ol>
+<p><strong>应用</strong>：</p>
+<ul>
+<li>无旋场：流体势流，静电场</li>
+<li>无散场：不可压流体，磁场</li>
+<li>调和场：拓扑特征，周期结构</li>
+</ul>
+<p><strong>数值考虑</strong>：</p>
+<ul>
+<li>使用QR分解找到调和空间基</li>
+<li>预条件共轭梯度法求解大规模系统</li>
+<li>边界条件影响分解唯一性</li>
+</ul>
+</details>
+<p><strong>练习2.8</strong> 设计一个多分辨率的曲率计算方案，能够在不同尺度下捕获几何特征。</p>
+<p><em>提示</em>：可以使用谱方法或者多尺度的邻域。</p>
+<details>
+<summary>答案</summary>
+<p><strong>方法1：谱多分辨率</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">计算Laplacian特征函数</span><span class="w"> </span><span class="n">φ_i</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">低通滤波</span><span class="err">：</span><span class="n">f_σ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Σ_</span><span class="err">{</span><span class="n">λ_i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">σ</span><span class="err">}</span><span class="w"> </span><span class="o">&lt;</span><span class="n">f</span><span class="p">,</span><span class="w"> </span><span class="n">φ_i</span><span class="o">&gt;</span><span class="w"> </span><span class="n">φ_i</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">在滤波后的几何上计算曲率</span>
+<span class="mf">4.</span><span class="w"> </span><span class="n">尺度空间</span><span class="err">：</span><span class="n">K</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">σ</span><span class="p">)</span><span class="w"> </span><span class="n">随σ变化</span>
+</code></pre></div>
+
+<p><strong>方法2：测地球邻域</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">对每个顶点</span><span class="err">，</span><span class="n">提取半径r的测地球</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">在邻域内拟合二次曲面</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">从拟合参数提取曲率</span>
+<span class="mf">4.</span><span class="w"> </span><span class="n">改变r得到多尺度曲率</span>
+</code></pre></div>
+
+<p><strong>特征检测</strong>：</p>
+<ul>
+<li>尺度选择：曲率变化率最大处</li>
+<li>特征追踪：不同尺度下的对应关系</li>
+<li>应用：自适应网格简化，特征保持平滑</li>
+</ul>
+</details>
+<h2 id="_5">常见陷阱与错误</h2>
+<h3 id="_6">数值稳定性问题</h3>
+<ol>
+<li>
+<p><strong>余切权重的负值</strong>
+   - 问题：钝角三角形产生负权重，导致矩阵非正定
+   - 解决：使用Mean Value坐标或投影到最近正定矩阵
+   - 预防：网格预处理，改善三角形质量</p>
+</li>
+<li>
+<p><strong>小角度的数值误差</strong>
+   - 问题：接近0或π的角度导致余切值爆炸
+   - 解决：设置阈值，钳制极端值
+   - 更好方案：使用稳定的公式 $\cot\theta = \cos\theta/\sin\theta$</p>
+</li>
+<li>
+<p><strong>质量矩阵的条件数</strong>
+   - 问题：极小三角形导致病态矩阵
+   - 解决：使用集中质量矩阵或预条件器
+   - 诊断：监控条件数，自适应选择求解器</p>
+</li>
+</ol>
+<h3 id="_7">几何退化情况</h3>
+<ol>
+<li>
+<p><strong>零面积三角形</strong>
+   - 检测：叉积范数 &lt; ε
+   - 处理：合并顶点或删除退化元素
+   - 影响：曲率计算无定义，参数化失败</p>
+</li>
+<li>
+<p><strong>非流形结构</strong>
+   - T-junction：边连接超过2个三角形
+   - 非流形顶点：邻域不同胚于圆盘
+   - 处理：局部重网格化或分离处理</p>
+</li>
+<li>
+<p><strong>边界处理不当</strong>
+   - 曲率计算：需要虚拟延拓或特殊公式
+   - 参数化：边界约束影响全局质量
+   - 建议：使用自然边界条件或特征对齐</p>
+</li>
+</ol>
+<h3 id="_8">算法选择错误</h3>
+<ol>
+<li>
+<p><strong>不适当的离散化</strong>
+   - 症状：结果对网格分辨率敏感
+   - 原因：未考虑收敛阶
+   - 改进：使用高阶方法或自适应细化</p>
+</li>
+<li>
+<p><strong>忽略对称性</strong>
+   - 问题：数值误差破坏理论对称性
+   - 例子：Laplacian应该对称
+   - 解决：强制对称化 $(L + L^T)/2$</p>
+</li>
+<li>
+<p><strong>错误的特征值计算</strong>
+   - 使用密集方法计算大规模问题
+   - 未利用矩阵稀疏性和对称性
+   - 正确：使用Lanczos或Arnoldi迭代</p>
+</li>
+</ol>
+<h2 id="_9">最佳实践检查清单</h2>
+<h3 id="_10">网格预处理</h3>
+<ul>
+<li>[ ] 检查并修复非流形结构</li>
+<li>[ ] 移除退化三角形（面积 &lt; 1e-10）</li>
+<li>[ ] 改善三角形质量（最小角 &gt; 15°）</li>
+<li>[ ] 统一网格朝向（法向量一致）</li>
+<li>[ ] 处理孤立顶点和悬挂边</li>
+</ul>
+<h3 id="_11">数值计算</h3>
+<ul>
+<li>[ ] 选择合适的线性求解器（直接vs迭代）</li>
+<li>[ ] 使用预条件器加速收敛</li>
+<li>[ ] 监控残差和收敛历史</li>
+<li>[ ] 验证矩阵性质（对称性、正定性）</li>
+<li>[ ] 处理数值零（使用相对容差）</li>
+</ul>
+<h3 id="_12">算法验证</h3>
+<ul>
+<li>[ ] 在简单几何上验证（球、环面）</li>
+<li>[ ] 检查尺度不变性和旋转不变性</li>
+<li>[ ] 验证守恒量（面积、体积、拓扑）</li>
+<li>[ ] 与解析解或其他方法对比</li>
+<li>[ ] 测试极端情况和边界条件</li>
+</ul>
+<h3 id="_13">性能优化</h3>
+<ul>
+<li>[ ] 利用稀疏矩阵结构</li>
+<li>[ ] 预计算不变量（如余切权重）</li>
+<li>[ ] 使用空间数据结构加速查询</li>
+<li>[ ] 考虑并行化（OpenMP、CUDA）</li>
+<li>[ ] 平衡精度与计算成本</li>
+</ul>
+<h3 id="_14">结果验证</h3>
+<ul>
+<li>[ ] 可视化中间结果</li>
+<li>[ ] 统计分析（直方图、分位数）</li>
+<li>[ ] 检查异常值和离群点</li>
+<li>[ ] 验证理论性质（如Gauss-Bonnet）</li>
+<li>[ ] 评估对输入扰动的敏感性</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter1.html" class="nav-link prev">← 第1章：几何表示与变换</a><a href="./chapter3.html" class="nav-link next">第3章：计算共形几何 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第16章：3D Gaussian Splatting</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">3D打印中的数学原理与计算方法</a></li><li class=""><a href="./chapter1.html">第1章：几何表示与变换</a></li><li class=""><a href="./chapter2.html">第2章：微分几何与离散算子</a></li><li class=""><a href="./chapter3.html">第3章：计算共形几何</a></li><li class=""><a href="./chapter4.html">第4章：计算拓扑与同调</a></li><li class=""><a href="./chapter5.html">第5章：网格处理算法</a></li><li class=""><a href="./chapter6.html">第6章：有限元方法与结构分析</a></li><li class=""><a href="./chapter7.html">第7章：拓扑优化基础</a></li><li class=""><a href="./chapter8.html">第8章：高级拓扑优化</a></li><li class=""><a href="./chapter9.html">第9章：切片算法与支撑生成</a></li><li class=""><a href="./chapter10.html">第10章：路径规划与填充</a></li><li class=""><a href="./chapter11.html">第11章：误差分析与补偿</a></li><li class=""><a href="./chapter12.html">第12章：流体仿真基础</a></li><li class=""><a href="./chapter13.html">第13章：多相流与传热</a></li><li class=""><a href="./chapter14.html">第14章：多视图几何</a></li><li class=""><a href="./chapter15.html">第15章：神经隐式表示</a></li><li class="active"><a href="./chapter16.html">第16章：3D Gaussian Splatting</a></li><li class=""><a href="./chapter17.html">第17章：可微渲染基础</a></li><li class=""><a href="./chapter18.html">第18章：高级可微渲染与逆向问题</a></li><li class=""><a href="./chapter19.html">第19章：符号几何与程序化建模</a></li><li class=""><a href="./chapter20.html">第20章：神经程序合成</a></li><li class=""><a href="./chapter21.html">第21章：深度生成模型</a></li><li class=""><a href="./chapter22.html">第22章：形状分析与检索</a></li><li class=""><a href="./chapter23.html">第23章：多材料与4D打印</a></li><li class=""><a href="./chapter24.html">第24章：仿生设计与自然算法</a></li><li class=""><a href="./chapter25.html">第25章：逆向问题与参数估计</a></li><li class=""><a href="./chapter26.html">第26章：实时仿真与数字孪生</a></li><li class=""><a href="./chapter27.html">第27章：常用工具与库</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="163d-gaussian-splatting">第16章：3D Gaussian Splatting</h1>
+<p>3D Gaussian Splatting是2023年兴起的革命性三维场景表示方法，通过显式的高斯原语实现了实时的高质量新视角合成。与神经隐式表示相比，它提供了更快的渲染速度、更好的可编辑性和更直观的几何解释。本章深入探讨其数学原理、优化算法和工程实现细节，重点关注可微光栅化、自适应密度控制和动态场景建模等核心技术。</p>
+<h2 id="161">16.1 高斯混合模型与球谐函数</h2>
+<h3 id="1611">16.1.1 三维高斯基础</h3>
+<p>三维高斯分布作为3D Gaussian Splatting的核心原语，其数学形式和几何意义决定了整个系统的表达能力。每个高斯可以看作一个"软椭球"，通过叠加实现复杂几何的表示。</p>
+<h4 id="_1">概率密度与几何解释</h4>
+<p>三维高斯分布的概率密度函数为：</p>
+<p>$$p(\mathbf{x}) = \frac{1}{(2\pi)^{3/2}|\Sigma|^{1/2}} \exp\left(-\frac{1}{2}(\mathbf{x}-\boldsymbol{\mu})^T\Sigma^{-1}(\mathbf{x}-\boldsymbol{\mu})\right)$$
+其中 $\boldsymbol{\mu} \in \mathbb{R}^3$ 是均值（中心位置），$\Sigma \in \mathbb{R}^{3 \times 3}$ 是协方差矩阵（决定形状和方向）。</p>
+<p>等概率密度面满足：
+$$(\mathbf{x}-\boldsymbol{\mu})^T\Sigma^{-1}(\mathbf{x}-\boldsymbol{\mu}) = c^2$$
+这定义了一个椭球，其主轴方向由$\Sigma$的特征向量决定，半轴长度正比于特征值的平方根。</p>
+<h4 id="_2">协方差矩阵的参数化</h4>
+<p>为了保证协方差矩阵的对称正定性，采用分解形式：
+$$\Sigma = RSS^TR^T$$
+其中：</p>
+<ul>
+<li>$R \in SO(3)$ 是旋转矩阵，定义椭球的方向</li>
+<li>$S = \text{diag}(s_x, s_y, s_z)$ 是对角缩放矩阵，$s_x, s_y, s_z &gt; 0$ 定义椭球的半轴长度</li>
+</ul>
+<p>这种参数化的优势：</p>
+<ol>
+<li><strong>保证正定性</strong>：只要$s_i &gt; 0$，$\Sigma$必然正定</li>
+<li><strong>直观控制</strong>：旋转和缩放分离，便于优化</li>
+<li><strong>数值稳定</strong>：避免直接优化对称矩阵的6个独立元素</li>
+</ol>
+<h4 id="_3">四元数旋转表示</h4>
+<p>使用单位四元数 $\mathbf{q} = (q_w, q_x, q_y, q_z)$ 表示旋转，满足$||\mathbf{q}|| = 1$：
+$$R(\mathbf{q}) = \begin{bmatrix}
+1-2(q_y^2+q_z^2) &amp; 2(q_xq_y-q_wq_z) &amp; 2(q_xq_z+q_wq_y) \\
+2(q_xq_y+q_wq_z) &amp; 1-2(q_x^2+q_z^2) &amp; 2(q_yq_z-q_wq_x) \\
+2(q_xq_z-q_wq_y) &amp; 2(q_yq_z+q_wq_x) &amp; 1-2(q_x^2+q_y^2)
+\end{bmatrix}$$
+四元数的优势：</p>
+<ul>
+<li><strong>无奇异性</strong>：避免欧拉角的万向锁问题</li>
+<li><strong>插值平滑</strong>：球面线性插值(SLERP)自然</li>
+<li><strong>梯度计算</strong>：$\frac{\partial R}{\partial \mathbf{q}}$形式简洁</li>
+</ul>
+<h4 id="_4">高斯的有效支撑域</h4>
+<p>虽然高斯分布理论上有无限支撑，实际计算中使用截断：
+$$\text{support} = \{\mathbf{x} : (\mathbf{x}-\boldsymbol{\mu})^T\Sigma^{-1}(\mathbf{x}-\boldsymbol{\mu}) \leq k^2\}$$
+通常取$k=3$（覆盖99.7%的概率质量），对应的包围球半径：
+$$r_{bound} = k \cdot \sqrt{\lambda_{max}}$$
+其中$\lambda_{max}$是$\Sigma$的最大特征值。</p>
+<h3 id="1612-2d">16.1.2 投影到2D图像平面</h3>
+<p>将3D高斯投影到2D图像平面是渲染的关键步骤，需要处理透视投影的非线性变换。这个过程保持了高斯分布的性质（在一阶近似下），但改变了其参数。</p>
+<h4 id="_5">相机模型与坐标变换</h4>
+<p>采用针孔相机模型，完整的投影流程：</p>
+<ol>
+<li><strong>世界到相机坐标</strong>：$\mathbf{x}_c = W(\mathbf{x}_w - \mathbf{t})$</li>
+<li><strong>透视投影</strong>：$\mathbf{x}_n = [x_c/z_c, y_c/z_c]^T$</li>
+<li><strong>图像坐标</strong>：$\mathbf{x}_i = K\mathbf{x}_n$</li>
+</ol>
+<p>其中$K$是内参矩阵：
+$$K = \begin{bmatrix} f_x &amp; 0 &amp; c_x \\ 0 &amp; f_y &amp; c_y \\ 0 &amp; 0 &amp; 1 \end{bmatrix}$$</p>
+<h4 id="_6">雅可比矩阵推导</h4>
+<p>透视投影是非线性变换，使用一阶泰勒展开近似：
+$$\mathbf{x}' \approx \pi(\boldsymbol{\mu}) + J(\mathbf{x} - \boldsymbol{\mu})$$
+其中雅可比矩阵$J = \frac{\partial \pi}{\partial \mathbf{x}}|_{\mathbf{x}=\boldsymbol{\mu}}$：
+$$J = \begin{bmatrix}
+\frac{f_x}{z} &amp; 0 &amp; -\frac{f_x x}{z^2} \\
+0 &amp; \frac{f_y}{z} &amp; -\frac{f_y y}{z^2}
+\end{bmatrix}$$
+这里$(x,y,z)$是高斯中心在相机坐标系下的位置。</p>
+<h4 id="2d">2D协方差的计算</h4>
+<p>通过线性变换的协方差传播公式：
+$$\Sigma_{2D} = J \Sigma_{3D} J^T$$
+展开计算：
+$$\Sigma_{2D} = \begin{bmatrix} \sigma_{xx}' &amp; \sigma_{xy}' \\ \sigma_{xy}' &amp; \sigma_{yy}' \end{bmatrix}$$
+其中各元素为$\Sigma_{3D}$元素的加权组合，权重由深度$z$决定。</p>
+<h4 id="ewa-elliptical-weighted-average">EWA (Elliptical Weighted Average) 滤波</h4>
+<p>为了反走样，需要考虑像素的有限大小，添加低通滤波器：
+$$\Sigma_{final} = \Sigma_{2D} + \epsilon I$$
+其中$\epsilon \approx 0.3$像素，防止高斯过于尖锐导致的走样。</p>
+<p>实际实现中，还需考虑：</p>
+<ul>
+<li><strong>近平面裁剪</strong>：$z &lt; z_{near}$的高斯需特殊处理</li>
+<li><strong>数值稳定性</strong>：当$z$很小时，雅可比元素可能爆炸</li>
+<li><strong>保守包围盒</strong>：考虑投影非线性，适当扩大2D包围盒</li>
+</ul>
+<h3 id="1613">16.1.3 球谐函数表示颜色</h3>
+<p>球谐函数(Spherical Harmonics)提供了一种紧凑而高效的方式来表示视角相关的外观，特别适合低频的光照变化。</p>
+<h4 id="_7">球谐函数基础</h4>
+<p>球谐函数是拉普拉斯方程在球面上的解，形成完备正交基：
+$$c(\mathbf{d}) = \sum_{l=0}^{L} \sum_{m=-l}^{l} c_{lm} Y_l^m(\mathbf{d})$$
+其中：</p>
+<ul>
+<li>$\mathbf{d} = (\theta, \phi)$ 是观察方向的球坐标</li>
+<li>$l$ 是阶数（degree），$m$ 是序数（order）</li>
+<li>$Y_l^m$ 是球谐基函数，$c_{lm}$ 是对应系数</li>
+</ul>
+<h4 id="_8">实球谐函数</h4>
+<p>实际使用实球谐函数（Real SH）避免复数运算：</p>
+<p><strong>0阶（常数项）</strong>：
+$$Y_0^0 = \frac{1}{2}\sqrt{\frac{1}{\pi}}$$
+<strong>1阶（线性项）</strong>：
+$$Y_1^{-1} = \frac{1}{2}\sqrt{\frac{3}{\pi}} y, \quad Y_1^0 = \frac{1}{2}\sqrt{\frac{3}{\pi}} z, \quad Y_1^1 = \frac{1}{2}\sqrt{\frac{3}{\pi}} x$$
+<strong>2阶（二次项）</strong>：
+$$Y_2^{-2} = \frac{1}{2}\sqrt{\frac{15}{\pi}} xy, \quad Y_2^{-1} = \frac{1}{2}\sqrt{\frac{15}{\pi}} yz$$
+$$Y_2^0 = \frac{1}{4}\sqrt{\frac{5}{\pi}} (3z^2-1), \quad Y_2^1 = \frac{1}{2}\sqrt{\frac{15}{\pi}} xz$$
+$$Y_2^2 = \frac{1}{4}\sqrt{\frac{15}{\pi}} (x^2-y^2)$$</p>
+<h4 id="_9">存储与计算优化</h4>
+<p>对于$L$阶SH，需要$(L+1)^2$个系数：</p>
+<ul>
+<li>0阶：1个系数（全向量颜色）</li>
+<li>1阶：4个系数（添加线性变化）</li>
+<li>2阶：9个系数（添加二次变化）</li>
+<li>3阶：16个系数（通常足够）</li>
+</ul>
+<p>RGB颜色需要3倍存储：$3 \times (L+1)^2$个浮点数。</p>
+<p>计算优化技巧：</p>
+<ol>
+<li><strong>递推计算</strong>：使用递推关系避免重复计算三角函数</li>
+<li><strong>向量化</strong>：将SH系数组织为矩阵形式批量计算</li>
+<li><strong>预计算查表</strong>：对离散视角预计算SH值</li>
+</ol>
+<h4 id="_10">频谱分析与带宽限制</h4>
+<p>球谐展开类似于傅里叶级数，不同阶数对应不同频率：</p>
+<ul>
+<li>低阶（$l \leq 2$）：捕获漫反射和环境光照</li>
+<li>中阶（$3 \leq l \leq 5$）：捕获光泽反射</li>
+<li>高阶（$l &gt; 5$）：捕获镜面高光和细节</li>
+</ul>
+<p>Nyquist采样定理的球面版本：需要至少$(2L+1)^2$个采样点完美重建$L$阶信号。</p>
+<h3 id="1614">16.1.4 不透明度与体积渲染</h3>
+<p>不透明度控制是实现正确混合和遮挡关系的关键，需要结合几何衰减和材质属性。</p>
+<h4 id="_11">不透明度参数化</h4>
+<p>每个高斯维护一个可学习的不透明度参数$\alpha_{raw} \in \mathbb{R}$，通过sigmoid函数映射到[0,1]：
+$$\alpha_{base} = \sigma(\alpha_{raw}) = \frac{1}{1 + e^{-\alpha_{raw}}}$$
+这种参数化的优势：</p>
+<ul>
+<li>无约束优化：梯度下降可以自由更新$\alpha_{raw}$</li>
+<li>自然初始化：$\alpha_{raw} = 0$对应$\alpha = 0.5$</li>
+<li>梯度流畅：sigmoid在中间区域梯度最大</li>
+</ul>
+<h4 id="_12">空间衰减函数</h4>
+<p>高斯的空间影响通过概率密度的归一化版本表示：
+$$G(\mathbf{x}) = \exp\left(-\frac{1}{2}(\mathbf{x}-\boldsymbol{\mu})^T\Sigma^{-1}(\mathbf{x}-\boldsymbol{\mu})\right)$$
+注意这里省略了归一化常数$(2\pi)^{3/2}|\Sigma|^{1/2}$，因为我们关心的是相对权重。</p>
+<p>最终的不透明度：
+$$\alpha(\mathbf{x}) = \alpha_{base} \cdot G(\mathbf{x})$$</p>
+<h4 id="_13">体积渲染积分</h4>
+<p>沿射线$\mathbf{r}(t) = \mathbf{o} + t\mathbf{d}$的颜色积分：
+$$C = \int_0^{\infty} T(t) \sigma(t) c(t) dt$$
+其中透射率：
+$$T(t) = \exp\left(-\int_0^t \sigma(s) ds\right)$$
+对于高斯splatting，使用alpha合成近似：
+$$C \approx \sum_{i=1}^{N} T_i \alpha_i c_i, \quad T_i = \prod_{j=1}^{i-1}(1-\alpha_j)$$
+这种近似在高斯密度足够时收敛到真实积分。</p>
+<h2 id="162">16.2 可微光栅化与排序</h2>
+<p>可微光栅化是3D Gaussian Splatting实现实时渲染和端到端优化的核心技术。通过精心设计的前向渲染和反向传播算法，实现了高效的梯度计算。</p>
+<h3 id="1621">16.2.1 瓦片化光栅化</h3>
+<p>瓦片化(Tiling)策略将图像空间划分为固定大小的区块，显著减少了每个像素需要处理的高斯数量，是实现实时性能的关键。</p>
+<h4 id="_14">瓦片划分策略</h4>
+<p>将图像分割成$T_w \times T_h$的瓦片网格，通常使用$16 \times 16$像素的瓦片：
+$$N_{tiles} = \lceil \frac{W}{16} \rceil \times \lceil \frac{H}{16} \rceil$$
+每个瓦片维护一个高斯列表，存储与该瓦片相交的所有高斯索引。</p>
+<h4 id="2d_1">2D包围盒计算</h4>
+<p>对于投影后的2D高斯，计算其轴对齐包围盒(AABB)：</p>
+<ol>
+<li>
+<p><strong>特征值分解</strong>：
+$$\Sigma_{2D} = V \Lambda V^T, \quad \Lambda = \text{diag}(\lambda_1, \lambda_2)$$</p>
+</li>
+<li>
+<p><strong>置信椭圆半径</strong>：
+$$r = k\sqrt{\max(\lambda_1, \lambda_2)}$$
+其中$k=3$对应99.7%置信度。</p>
+</li>
+<li>
+<p><strong>保守包围盒</strong>：
+$$\text{AABB} = [\mu_x - r, \mu_x + r] \times [\mu_y - r, \mu_y + r]$$
+实际中可以使用更紧的包围盒：
+$$r_x = k\sqrt{\sigma_{xx}}, \quad r_y = k\sqrt{\sigma_{yy}}$$</p>
+</li>
+</ol>
+<h4 id="_15">瓦片分配算法</h4>
+<div class="codehilite"><pre><span></span><code><span class="k">for</span><span class="w"> </span><span class="k">each</span><span class="w"> </span><span class="n">gaussian</span><span class="w"> </span><span class="nl">g</span><span class="p">:</span>
+<span class="w">    </span><span class="n">bbox</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">compute_2d_bbox</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+<span class="w">    </span><span class="n">tile_min</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nf">floor</span><span class="p">(</span><span class="n">bbox</span><span class="p">.</span><span class="nf">min</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span>
+<span class="w">    </span><span class="n">tile_max</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ceil</span><span class="p">(</span><span class="n">bbox</span><span class="p">.</span><span class="nf">max</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="n">tx</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="o">[</span><span class="n">tile_min.x, tile_max.x</span><span class="o">]</span><span class="err">:</span>
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="n">ty</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="o">[</span><span class="n">tile_min.y, tile_max.y</span><span class="o">]</span><span class="err">:</span>
+<span class="w">            </span><span class="n">tile</span><span class="o">[</span><span class="n">tx</span><span class="o">][</span><span class="n">ty</span><span class="o">]</span><span class="p">.</span><span class="k">add</span><span class="p">(</span><span class="n">g</span><span class="p">.</span><span class="n">id</span><span class="p">)</span>
+</code></pre></div>
+
+<p>优化技巧：</p>
+<ul>
+<li><strong>分层瓦片</strong>：使用多级瓦片加速大高斯的处理</li>
+<li><strong>动态瓦片大小</strong>：根据高斯密度自适应调整</li>
+<li><strong>早期剔除</strong>：利用深度缓冲区提前剔除被遮挡的高斯</li>
+</ul>
+<h3 id="1622-alpha">16.2.2 深度排序与alpha混合</h3>
+<p>正确的深度排序是实现透明度混合的前提，需要在效率和准确性之间平衡。</p>
+<h4 id="_16">排序策略</h4>
+<ol>
+<li>
+<p><strong>全局排序</strong>：
+对所有高斯按深度排序，复杂度$O(N\log N)$，内存访问不连续。</p>
+</li>
+<li>
+<p><strong>瓦片内排序</strong>：
+每个瓦片独立排序，复杂度$O(N_t\log N_t)$，其中$N_t \ll N$。</p>
+</li>
+<li>
+<p><strong>基数排序优化</strong>：
+利用深度的有限精度，使用基数排序达到$O(N)$复杂度：
+$$z_{quantized} = \lfloor z \cdot 2^{16} \rfloor$$</p>
+</li>
+</ol>
+<h4 id="alpha">Alpha混合计算</h4>
+<p>前向渲染的alpha混合公式：
+$$C = \sum_{i=1}^{N} T_i \alpha_i c_i$$
+累积透射率的递推计算：
+$$T_1 = 1, \quad T_{i+1} = T_i \cdot (1 - \alpha_i)$$</p>
+<h4 id="_17">饱和停止优化</h4>
+<p>当累积不透明度接近1时停止：
+$$\sum_{j=1}^{i} \alpha_j T_j &gt; 1 - \epsilon$$
+或等价地：
+$$T_i &lt; \epsilon_{stop}$$
+典型取$\epsilon_{stop} = 0.001$。</p>
+<p>实际实现考虑：</p>
+<ul>
+<li><strong>数值稳定性</strong>：防止$T_i$下溢，使用对数空间计算</li>
+<li><strong>向量化</strong>：批量处理多个像素的alpha混合</li>
+<li><strong>内存局部性</strong>：优化数据布局减少cache miss</li>
+</ul>
+<h3 id="1623">16.2.3 反向传播梯度计算</h3>
+<p>可微光栅化的关键是高效准确地计算损失对所有高斯参数的梯度。这需要仔细处理alpha混合的链式法则。</p>
+<h4 id="_18">颜色梯度</h4>
+<p>对于渲染颜色$C = \sum_{i} T_i \alpha_i c_i$，各参数的梯度：</p>
+<p><strong>颜色系数梯度</strong>：
+$$\frac{\partial \mathcal{L}}{\partial c_i} = \frac{\partial \mathcal{L}}{\partial C} \cdot T_i \alpha_i$$
+这是最简单的情况，梯度正比于高斯对最终颜色的贡献。</p>
+<p><strong>不透明度梯度</strong>：
+$$\frac{\partial \mathcal{L}}{\partial \alpha_i} = \frac{\partial \mathcal{L}}{\partial C} \cdot \left(T_i c_i - \sum_{j=i+1}^{N} \frac{T_j \alpha_j c_j}{1-\alpha_i}\right)$$
+第二项来自$\alpha_i$对后续高斯透射率的影响。</p>
+<h4 id="_19">几何参数梯度</h4>
+<p><strong>位置梯度</strong>通过多条路径传播：
+$$\frac{\partial \mathcal{L}}{\partial \boldsymbol{\mu}} = \frac{\partial \mathcal{L}}{\partial \alpha} \frac{\partial \alpha}{\partial G} \frac{\partial G}{\partial \boldsymbol{\mu}} + \frac{\partial \mathcal{L}}{\partial \mathbf{x}'} \frac{\partial \mathbf{x}'}{\partial \boldsymbol{\mu}}$$
+其中：
+$$\frac{\partial G}{\partial \boldsymbol{\mu}} = G \cdot \Sigma^{-1}(\mathbf{x} - \boldsymbol{\mu})$$
+<strong>协方差梯度</strong>：
+$$\frac{\partial G}{\partial \Sigma} = \frac{1}{2} G \left(\Sigma^{-1}\mathbf{d}\mathbf{d}^T\Sigma^{-1} - \Sigma^{-1}\right)$$
+其中$\mathbf{d} = \mathbf{x} - \boldsymbol{\mu}$。</p>
+<h4 id="_20">参数化梯度</h4>
+<p>从$\Sigma = RSS^TR^T$到原始参数的梯度：</p>
+<p><strong>缩放梯度</strong>：
+$$\frac{\partial \mathcal{L}}{\partial s_k} = 2s_k \sum_{i,j} \frac{\partial \mathcal{L}}{\partial \Sigma_{ij}} R_{ik}R_{jk}$$
+<strong>四元数梯度</strong>：
+$$\frac{\partial \mathcal{L}}{\partial \mathbf{q}} = \frac{\partial \mathcal{L}}{\partial R} \frac{\partial R}{\partial \mathbf{q}}$$
+需要投影到单位球面保持归一化：
+$$\nabla_{\mathbf{q}} \leftarrow \nabla_{\mathbf{q}} - (\mathbf{q}^T\nabla_{\mathbf{q}})\mathbf{q}$$</p>
+<h4 id="_21">梯度累积与原子操作</h4>
+<p>由于多个像素可能同时更新同一个高斯的梯度，需要原子操作：</p>
+<div class="codehilite"><pre><span></span><code><span class="n">atomicAdd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">grad_mu</span><span class="o">[</span><span class="n">g_id</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">local_grad_mu</span><span class="p">)</span>
+<span class="n">atomicAdd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">grad_sigma</span><span class="o">[</span><span class="n">g_id</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">local_grad_sigma</span><span class="p">)</span>
+</code></pre></div>
+
+<p>优化策略：</p>
+<ul>
+<li><strong>局部累积</strong>：先在共享内存累积，减少原子操作</li>
+<li><strong>梯度分块</strong>：将梯度分配到不同内存区域，后续归约</li>
+<li><strong>混合精度</strong>：使用fp16累积，定期转换到fp32</li>
+</ul>
+<h3 id="1624">16.2.4 数值稳定性考虑</h3>
+<p>数值稳定性对训练的收敛性和最终质量至关重要。</p>
+<h4 id="_22">协方差正定性维护</h4>
+<ol>
+<li>
+<p><strong>正则化项</strong>：
+$$\Sigma_{reg} = RSS^TR^T + \epsilon I$$
+其中$\epsilon \approx 10^{-7}$防止奇异。</p>
+</li>
+<li>
+<p><strong>缩放下界</strong>：
+$$s_i = \max(s_i, s_{min})$$
+典型$s_{min} = 10^{-7}$。</p>
+</li>
+<li>
+<p><strong>条件数控制</strong>：
+$$\kappa(\Sigma) = \frac{\lambda_{max}}{\lambda_{min}} &lt; \kappa_{max}$$
+当条件数过大时，重新初始化或分裂高斯。</p>
+</li>
+</ol>
+<h4 id="_23">梯度爆炸控制</h4>
+<ol>
+<li>
+<p><strong>梯度裁剪</strong>：
+$$\nabla_{clipped} = \nabla \cdot \min\left(1, \frac{C_{max}}{||\nabla||_2}\right)$$
+其中$C_{max}$是最大梯度范数。</p>
+</li>
+<li>
+<p><strong>自适应裁剪</strong>：
+基于历史统计动态调整：
+$$C_{max} = \mu_{grad} + k \cdot \sigma_{grad}$$</p>
+</li>
+<li>
+<p><strong>分层裁剪</strong>：
+对不同参数使用不同阈值：</p>
+</li>
+</ol>
+<ul>
+<li>位置：较大阈值允许快速移动</li>
+<li>颜色：中等阈值保持稳定</li>
+<li>不透明度：小阈值防止突变</li>
+</ul>
+<h4 id="_24">学习率调度</h4>
+<ol>
+<li>
+<p><strong>尺度相关学习率</strong>：
+$$lr_{\boldsymbol{\mu}} = lr_{base} \cdot \frac{1}{\text{scale}(\mathcal{G})}$$
+其中$\text{scale}(\mathcal{G}) = \sqrt[3]{||\Sigma||}$。</p>
+</li>
+<li>
+<p><strong>指数衰减</strong>：
+$$lr(t) = lr_0 \cdot \gamma^{t/T}$$</p>
+</li>
+<li>
+<p><strong>Warmup策略</strong>：
+$$lr(t) = \begin{cases}
+lr_0 \cdot t/T_{warm} &amp; t &lt; T_{warm} \\
+lr_0 &amp; t \geq T_{warm}
+\end{cases}$$</p>
+</li>
+</ol>
+<h4 id="_25">浮点精度管理</h4>
+<ol>
+<li>
+<p><strong>混合精度训练</strong>：
+- 前向传播：fp16减少内存带宽
+- 梯度累积：fp32保持精度
+- 参数更新：fp32避免舍入误差</p>
+</li>
+<li>
+<p><strong>Kahan求和</strong>：
+对于大量高斯的累积，使用补偿求和算法：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="nv">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span>,<span class="w"> </span><span class="nv">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span>
+<span class="k">for</span><span class="w"> </span><span class="nv">value</span><span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="nv">values</span>:
+<span class="w">    </span><span class="nv">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">value</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nv">c</span>
+<span class="w">    </span><span class="nv">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">sum</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nv">y</span>
+<span class="w">    </span><span class="nv">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ss">(</span><span class="nv">t</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nv">sum</span><span class="ss">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nv">y</span>
+<span class="w">    </span><span class="nv">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">t</span>
+</code></pre></div>
+
+<h2 id="163">16.3 自适应密度控制</h2>
+<h3 id="1631">16.3.1 密度自适应算法</h3>
+<p>基于梯度和重建误差的自适应策略：</p>
+<ol>
+<li>
+<p><strong>过度重建区域检测</strong>：
+$$\nabla_{\boldsymbol{\mu}} = ||\frac{\partial \mathcal{L}}{\partial \boldsymbol{\mu}}||$$
+当 $\nabla_{\boldsymbol{\mu}} &gt; \tau_{grad}$ 时，需要增加高斯密度。</p>
+</li>
+<li>
+<p><strong>尺度判断</strong>：
+大高斯分裂条件：
+$$\max(s_x, s_y, s_z) &gt; \tau_{scale}$$</p>
+</li>
+<li>
+<p><strong>不透明度剪枝</strong>：
+$$\alpha &lt; \tau_{\alpha} \Rightarrow \text{remove}$$</p>
+</li>
+</ol>
+<h3 id="1632">16.3.2 高斯分裂策略</h3>
+<p>分裂操作创建两个子高斯：
+$$\boldsymbol{\mu}_{new} = \boldsymbol{\mu} \pm \delta \cdot \mathbf{n}$$
+其中 $\mathbf{n}$ 是沿最大特征值方向：
+$$\Sigma = V \Lambda V^T, \quad \mathbf{n} = V[:,\arg\max(\Lambda)]$$
+新的缩放因子：
+$$S_{new} = \phi \cdot S, \quad \phi \approx 0.6$$</p>
+<h3 id="1633">16.3.3 高斯克隆</h3>
+<p>对于欠重建区域，克隆小高斯：
+$$\text{if } \max(s_x, s_y, s_z) &lt; \tau_{small} \text{ and } \nabla_{\boldsymbol{\mu}} &gt; \tau_{grad}$$
+克隆位置沿梯度方向：
+$$\boldsymbol{\mu}_{clone} = \boldsymbol{\mu} + \epsilon \cdot \frac{\nabla_{\boldsymbol{\mu}}}{||\nabla_{\boldsymbol{\mu}}||}$$</p>
+<h3 id="1634">16.3.4 定期重置与合并</h3>
+<ol>
+<li>
+<p><strong>不透明度重置</strong>：
+每$N$次迭代重置接近透明的高斯：
+$$\alpha &lt; 0.01 \Rightarrow \alpha_{reset} = 0.01$$</p>
+</li>
+<li>
+<p><strong>高斯合并</strong>：
+距离小于阈值的相似高斯合并：
+$$d(\mathcal{G}_i, \mathcal{G}_j) = ||\boldsymbol{\mu}_i - \boldsymbol{\mu}_j|| + \beta \cdot ||\text{vec}(\Sigma_i) - \text{vec}(\Sigma_j)||$$
+合并后的参数：
+$$\boldsymbol{\mu}_{merged} = \frac{\alpha_i\boldsymbol{\mu}_i + \alpha_j\boldsymbol{\mu}_j}{\alpha_i + \alpha_j}$$</p>
+</li>
+</ol>
+<h2 id="164">16.4 压缩与量化技术</h2>
+<h3 id="1641">16.4.1 向量量化</h3>
+<p>使用码本量化高斯属性：</p>
+<ol>
+<li>
+<p><strong>位置量化</strong>：
+将场景包围盒离散化：
+$$\boldsymbol{\mu}_{quantized} = \text{round}\left(\frac{\boldsymbol{\mu} - \mathbf{b}_{min}}{\mathbf{b}_{max} - \mathbf{b}_{min}} \cdot 2^{b}\right)$$
+其中 $b$ 是量化位数（通常16位）。</p>
+</li>
+<li>
+<p><strong>旋转量化</strong>：
+四元数归一化后量化：
+$$q_{quantized} = \text{round}(q \cdot 2^{10})$$
+利用单位四元数约束，只存储3个分量。</p>
+</li>
+<li>
+<p><strong>尺度对数量化</strong>：
+$$s_{log} = \log(s), \quad s_{quantized} = \text{round}\left(\frac{s_{log} - s_{log,min}}{s_{log,max} - s_{log,min}} \cdot 2^{8}\right)$$</p>
+</li>
+</ol>
+<h3 id="1642">16.4.2 球谐系数压缩</h3>
+<ol>
+<li>
+<p><strong>DCT变换</strong>：
+对SH系数应用离散余弦变换：
+$$C_{DCT} = DCT(c_{lm})$$
+保留前$k$个系数（能量集中）。</p>
+</li>
+<li>
+<p><strong>主成分分析</strong>：
+收集训练数据构建PCA基：
+$$\mathbf{c} = \bar{\mathbf{c}} + \sum_{i=1}^{k} a_i \mathbf{v}_i$$
+其中 $\mathbf{v}_i$ 是主成分。</p>
+</li>
+<li>
+<p><strong>向量码本</strong>：
+使用k-means聚类构建码本：
+$$\mathcal{C} = \{c_1, c_2, ..., c_K\}$$
+每个高斯存储最近码字索引。</p>
+</li>
+</ol>
+<h3 id="1643">16.4.3 熵编码与存储优化</h3>
+<ol>
+<li>
+<p><strong>霍夫曼编码</strong>：
+统计属性分布，构建霍夫曼树：
+$$H(X) = -\sum_{i} p_i \log_2 p_i$$</p>
+</li>
+<li>
+<p><strong>空间哈希</strong>：
+稀疏体素网格存储：
+$$hash(x,y,z) = (x \cdot p_1 \oplus y \cdot p_2 \oplus z \cdot p_3) \mod M$$
+其中 $p_1, p_2, p_3$ 是大质数。</p>
+</li>
+<li>
+<p><strong>八叉树层次结构</strong>：
+递归细分空间：
+$$\text{LOD}_i = \text{merge}(\text{children at level } i+1)$$</p>
+</li>
+</ol>
+<h3 id="1644">16.4.4 流式传输与渐进加载</h3>
+<ol>
+<li>
+<p><strong>重要性排序</strong>：
+$$importance = \alpha \cdot volume \cdot view_frequency$$
+其中 $volume = \sqrt{||\Sigma||}$</p>
+</li>
+<li>
+<p><strong>视锥体剔除</strong>：
+$$\text{visible} = \text{frustum_test}(\boldsymbol{\mu}, radius)$$</p>
+</li>
+<li>
+<p><strong>细节层次(LOD)</strong>：
+根据距离选择简化版本：
+$$LOD = \max(0, \log_2(\frac{d}{d_{ref}}))$$</p>
+</li>
+</ol>
+<h2 id="165-4d">16.5 动态场景与4D表示</h2>
+<h3 id="1651">16.5.1 时间维度建模</h3>
+<p>4D高斯表示：
+$$\mathcal{G}(t) = \{\boldsymbol{\mu}(t), \Sigma(t), \alpha(t), \mathbf{c}(t)\}$$</p>
+<ol>
+<li>
+<p><strong>轨迹参数化</strong>：
+使用多项式基：
+$$\boldsymbol{\mu}(t) = \sum_{i=0}^{n} \mathbf{a}_i t^i$$
+或Fourier基：
+$$\boldsymbol{\mu}(t) = \boldsymbol{\mu}_0 + \sum_{k=1}^{K} \mathbf{A}_k \sin(k\omega t) + \mathbf{B}_k \cos(k\omega t)$$</p>
+</li>
+<li>
+<p><strong>神经轨迹</strong>：
+$$\boldsymbol{\mu}(t) = \boldsymbol{\mu}_0 + MLP_{\theta}(t, \mathbf{z})$$
+其中 $\mathbf{z}$ 是潜在编码。</p>
+</li>
+</ol>
+<h3 id="1652">16.5.2 变形场方法</h3>
+<ol>
+<li>
+<p><strong>显式变形场</strong>：
+$$\mathbf{x}(t) = \mathbf{x}_0 + \mathbf{d}(\mathbf{x}_0, t)$$
+变形场正则化：
+$$\mathcal{L}_{reg} = \lambda_1 ||\nabla \mathbf{d}||^2 + \lambda_2 ||\nabla^2 \mathbf{d}||^2$$</p>
+</li>
+<li>
+<p><strong>光流约束</strong>：
+$$\frac{\partial I}{\partial t} + \nabla I \cdot \mathbf{v} = 0$$
+其中 $\mathbf{v} = \frac{\partial \mathbf{x}}{\partial t}$</p>
+</li>
+<li>
+<p><strong>刚性分解</strong>：
+$$\mathbf{x}(t) = R(t)\mathbf{x}_0 + \mathbf{t}(t)$$
+使用Procrustes分析估计 $R(t), \mathbf{t}(t)$。</p>
+</li>
+</ol>
+<h3 id="1653">16.5.3 时间一致性优化</h3>
+<ol>
+<li>
+<p><strong>时序平滑</strong>：
+$$\mathcal{L}_{smooth} = \sum_{t} ||\mathcal{G}(t+\Delta t) - \mathcal{G}(t)||^2$$</p>
+</li>
+<li>
+<p><strong>循环一致性</strong>：
+$$\mathcal{L}_{cycle} = ||\mathcal{T}_{t \to t+T} \circ \mathcal{T}_{0 \to t}(\mathbf{x}) - \mathcal{T}_{0 \to t+T}(\mathbf{x})||$$</p>
+</li>
+<li>
+<p><strong>长程依赖</strong>：
+使用LSTM或Transformer建模时序关系：
+$$\mathbf{h}_t = LSTM(\mathcal{G}(t), \mathbf{h}_{t-1})$$</p>
+</li>
+</ol>
+<h3 id="1654">16.5.4 增量更新与在线学习</h3>
+<ol>
+<li>
+<p><strong>关键帧策略</strong>：
+$$\text{is_keyframe} = \Delta_{pose} &gt; \tau_{rot} \text{ or } ||\Delta_{trans}|| &gt; \tau_{trans}$$</p>
+</li>
+<li>
+<p><strong>局部更新</strong>：
+只优化视锥体内的高斯：
+$$\mathcal{G}_{active} = \{\mathcal{G}_i | \text{in_frustum}(\boldsymbol{\mu}_i)\}$$</p>
+</li>
+<li>
+<p><strong>时间窗口优化</strong>：
+$$\mathcal{L} = \sum_{t \in [T-w, T]} \mathcal{L}_{render}(t) + \lambda \mathcal{L}_{consistency}$$</p>
+</li>
+</ol>
+<h3 id="1655-">16.5.5 多视图-多时刻联合优化</h3>
+<p>优化目标：
+$$\mathcal{L}_{total} = \sum_{v,t} \mathcal{L}_{photo}(I_{v,t}, \hat{I}_{v,t}) + \lambda_1 \mathcal{L}_{temporal} + \lambda_2 \mathcal{L}_{spatial}$$
+其中：</p>
+<ul>
+<li>$\mathcal{L}_{photo}$：光度一致性损失</li>
+<li>$\mathcal{L}_{temporal}$：时间平滑项  </li>
+<li>$\mathcal{L}_{spatial}$：空间正则化</li>
+</ul>
+<h2 id="_26">本章小结</h2>
+<p>3D Gaussian Splatting通过显式的高斯原语表示实现了实时高质量渲染，主要创新包括：</p>
+<ol>
+<li><strong>高效表示</strong>：使用各向异性3D高斯配合球谐函数，紧凑表示几何和外观</li>
+<li><strong>可微光栅化</strong>：基于瓦片的排序算法实现快速前向渲染和梯度反传</li>
+<li><strong>自适应优化</strong>：通过分裂、克隆和剪枝动态调整高斯密度</li>
+<li><strong>压缩技术</strong>：向量量化、熵编码等方法大幅减少存储需求</li>
+<li><strong>动态扩展</strong>：4D表示和变形场支持动态场景建模</li>
+</ol>
+<p>关键数学工具：</p>
+<ul>
+<li>多元高斯分布：$p(\mathbf{x}) \propto \exp(-\frac{1}{2}(\mathbf{x}-\boldsymbol{\mu})^T\Sigma^{-1}(\mathbf{x}-\boldsymbol{\mu}))$</li>
+<li>球谐展开：$c(\mathbf{d}) = \sum_{l,m} c_{lm} Y_l^m(\mathbf{d})$</li>
+<li>Alpha混合：$C = \sum_i T_i \alpha_i c_i$，$T_i = \prod_{j&lt;i}(1-\alpha_j)$</li>
+<li>梯度下降：$\theta_{t+1} = \theta_t - \eta \nabla_\theta \mathcal{L}$</li>
+</ul>
+<h2 id="_27">练习题</h2>
+<h3 id="_28">基础题</h3>
+<p><strong>练习16.1</strong> 证明3D高斯投影到2D平面后仍是高斯分布。设3D高斯中心为$\boldsymbol{\mu}$，协方差为$\Sigma$，投影矩阵为$P$。</p>
+<details markdown="1">
+<summary>提示</summary>
+<p>使用线性变换的性质和特征函数方法。
+</details></p>
+<details>
+<summary>答案</summary>
+<p>线性变换下高斯分布保持高斯性。设投影$\mathbf{y} = P\mathbf{x}$，则：
+$$\mathbf{y} \sim \mathcal{N}(P\boldsymbol{\mu}, P\Sigma P^T)$$
+证明通过特征函数：
+$$\phi_Y(t) = E[e^{it^TY}] = e^{it^TP\mu - \frac{1}{2}t^TP\Sigma P^Tt}$$
+这正是均值为$P\boldsymbol{\mu}$、协方差为$P\Sigma P^T$的高斯分布特征函数。</p>
+</details>
+<p><strong>练习16.2</strong> 推导2D高斯在像素$(u,v)$处的值，给定中心$(u_0,v_0)$和2×2协方差矩阵$\Sigma'$。</p>
+<details>
+<summary>提示</summary>
+<p>直接应用2D高斯公式并简化。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>$$G(u,v) = \exp\left(-\frac{1}{2}\begin{bmatrix}u-u_0\\v-v_0\end{bmatrix}^T (\Sigma')^{-1} \begin{bmatrix}u-u_0\\v-v_0\end{bmatrix}\right)$$
+设$\Sigma' = \begin{bmatrix}a &amp; b\\b &amp; c\end{bmatrix}$，则：
+$$G(u,v) = \exp\left(-\frac{1}{2(ac-b^2)}[c(u-u_0)^2 - 2b(u-u_0)(v-v_0) + a(v-v_0)^2]\right)$$</p>
+</details>
+<p><strong>练习16.3</strong> 计算$N$个高斯alpha混合的计算复杂度，并分析早停策略的影响。</p>
+<details>
+<summary>提示</summary>
+<p>考虑排序、累积透射率计算和早停条件。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>不带早停：$O(N\log N)$排序 + $O(N)$混合 = $O(N\log N)$
+带早停（平均停在$k$个高斯）：$O(N\log N)$排序 + $O(k)$混合
+当$k \ll N$时，混合成本大幅降低，但排序仍是瓶颈。
+瓦片化减少每个瓦片的$N$，使得排序成本降为$O(N_t\log N_t)$，$N_t$是瓦片内高斯数。</p>
+</details>
+<p><strong>练习16.4</strong> 设计一个判断高斯是否需要分裂的度量，考虑梯度magnitude和空间extent。</p>
+<details>
+<summary>提示</summary>
+<p>结合位置梯度和尺度信息。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>分裂度量：
+$$S = ||\nabla_{\boldsymbol{\mu}}\mathcal{L}|| \cdot \max(s_x, s_y, s_z)$$
+当$S &gt; \tau$时触发分裂。这确保大的欠拟合高斯被分裂。
+另一种方法使用Hessian：
+$$S = \text{tr}(H_{\boldsymbol{\mu}}) \cdot \text{vol}(\Sigma)^{1/3}$$</p>
+</details>
+<h3 id="_29">挑战题</h3>
+<p><strong>练习16.5</strong> 推导球谐函数旋转公式。给定旋转矩阵$R$，如何变换SH系数使得$c'(\mathbf{d}) = c(R^T\mathbf{d})$？</p>
+<details>
+<summary>提示</summary>
+<p>使用Wigner D-矩阵和球谐函数的旋转性质。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>SH系数变换通过Wigner D-矩阵：
+$$c'_{lm} = \sum_{m'=-l}^{l} D^l_{mm'}(R) c_{lm'}$$
+其中$D^l_{mm'}(R)$是Wigner D-矩阵元素。
+对于低阶（$l \leq 2$），可以预计算旋转矩阵。
+$l=1$时直接是3×3旋转：$\mathbf{c}'_1 = R\mathbf{c}_1$</p>
+</details>
+<p><strong>练习16.6</strong> 分析3D Gaussian Splatting的内存带宽需求。假设场景有100万个高斯，每个高斯48字节属性，渲染1920×1080图像。</p>
+<details>
+<summary>提示</summary>
+<p>考虑排序、光栅化和混合各阶段的内存访问。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>内存带宽分析：</p>
+<ol>
+<li>高斯数据加载：$10^6 \times 48B = 48MB$</li>
+<li>投影后2D高斯：$10^6 \times 24B = 24MB$（位置+协方差）</li>
+<li>深度排序索引：$10^6 \times 8B = 8MB$</li>
+<li>瓦片分配（假设平均10瓦片/高斯）：$10^7 \times 4B = 40MB$</li>
+<li>像素渲染（每像素访问~30高斯）：$1920 \times 1080 \times 30 \times 16B \approx 1GB$
+总带宽需求：~1.1GB/帧，30fps需要33GB/s带宽。</li>
+</ol>
+</details>
+<p><strong>练习16.7</strong> 设计一个基于八叉树的高斯组织结构，支持视锥体剔除和LOD选择。给出数据结构和查询算法。</p>
+<details>
+<summary>提示</summary>
+<p>每个节点存储包围盒和高斯列表，递归遍历。</p>
+</details>
+<details>
+<summary>答案</summary>
+<div class="codehilite"><pre><span></span><code>struct OctreeNode {
+    AABB bounds;
+    vector&lt;GaussianID&gt; gaussians;
+    array&lt;OctreeNode*, 8&gt; children;
+    float avgSize;  // 平均高斯尺寸
+    int level;
+}
+
+QueryVisible(node, frustum, viewpoint):
+    if not frustum.intersects(node.bounds):
+        return []
+
+    distance = ||viewpoint - node.center||
+    if node.isLeaf or distance &gt; LOD_threshold * node.avgSize:
+        return node.gaussians
+
+    visible = []
+    for child in node.children:
+        visible += QueryVisible(child, frustum, viewpoint)
+    return visible
+</code></pre></div>
+
+</details>
+<p><strong>练习16.8</strong> （开放题）提出一种新的高斯压缩方案，结合神经网络和传统压缩技术。分析压缩率和质量权衡。</p>
+<details>
+<summary>提示</summary>
+<p>考虑：潜在空间编码、可学习量化、上下文熵编码。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>混合压缩方案：</p>
+<ol>
+<li>
+<p><strong>神经编码器</strong>：将局部高斯群编码到潜在向量
+$$\mathbf{z} = \text{Encoder}(\{\mathcal{G}_i\}_{i \in \text{local}})$$</p>
+</li>
+<li>
+<p><strong>向量量化</strong>：使用可学习码本
+$$\mathbf{z}_q = \text{VQ}(\mathbf{z})$$</p>
+</li>
+<li>
+<p><strong>上下文模型</strong>：基于空间邻域预测
+$$p(\mathbf{z}_q | \mathbf{z}_{neighbors})$$</p>
+</li>
+<li>
+<p><strong>算术编码</strong>：利用预测分布压缩</p>
+</li>
+</ol>
+<p>预期压缩率：10-50×，取决于质量要求
+关键是平衡压缩率、解码速度和重建质量。</p>
+</details>
+<h2 id="gotchas">常见陷阱与错误 (Gotchas)</h2>
+<ol>
+<li>
+<p><strong>数值不稳定</strong>
+   - 协方差矩阵可能退化，需添加正则项$\epsilon I$
+   - 梯度爆炸，使用梯度裁剪和自适应学习率
+   - 四元数需保持归一化</p>
+</li>
+<li>
+<p><strong>排序瓶颈</strong>
+   - 全局排序开销大，使用瓦片局部排序
+   - 考虑近似排序算法（如基数排序）
+   - 利用帧间相干性避免重复排序</p>
+</li>
+<li>
+<p><strong>内存管理</strong>
+   - 动态分配导致碎片化，使用内存池
+   - GPU内存有限，实现分块渲染
+   - 注意瓦片列表的动态增长</p>
+</li>
+<li>
+<p><strong>训练不稳定</strong>
+   - 学习率过大导致高斯"爆炸"
+   - 密度控制参数敏感，需仔细调节
+   - 早期过度剪枝影响最终质量</p>
+</li>
+<li>
+<p><strong>压缩伪影</strong>
+   - 过度量化产生块状伪影
+   - SH截断导致高光丢失
+   - 空间哈希冲突造成混叠</p>
+</li>
+</ol>
+<h2 id="_30">最佳实践检查清单</h2>
+<h3 id="_31">实现优化</h3>
+<ul>
+<li>[ ] 使用共享内存优化瓦片内排序</li>
+<li>[ ] 实现视锥体剔除减少处理高斯数</li>
+<li>[ ] 采用分层数据结构加速空间查询</li>
+<li>[ ] 利用时间相干性复用计算结果</li>
+<li>[ ] 实现自适应精度（fp16/fp32混合）</li>
+</ul>
+<h3 id="_32">质量控制</h3>
+<ul>
+<li>[ ] 监控梯度范数防止训练崩溃</li>
+<li>[ ] 定期验证高斯分布合理性（无极端值）</li>
+<li>[ ] 检查alpha混合饱和度避免过度累积</li>
+<li>[ ] 验证视角一致性（多视角渲染对比）</li>
+<li>[ ] 评估压缩后的PSNR/SSIM指标</li>
+</ul>
+<h3 id="_33">内存效率</h3>
+<ul>
+<li>[ ] 实现增量式场景加载</li>
+<li>[ ] 使用LOD减少远处细节</li>
+<li>[ ] 定期整理内存避免碎片化</li>
+<li>[ ] 监控GPU内存使用防止溢出</li>
+<li>[ ] 实现高斯回收池减少分配开销</li>
+</ul>
+<h3 id="_34">鲁棒性设计</h3>
+<ul>
+<li>[ ] 处理退化情况（共线高斯、零尺度）</li>
+<li>[ ] 实现优雅降级（内存不足时降低质量）</li>
+<li>[ ] 添加断言检查关键不变量</li>
+<li>[ ] 实现checkpoint机制支持训练恢复</li>
+<li>[ ] 设计fallback路径处理硬件限制</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter15.html" class="nav-link prev">← 第15章：神经隐式表示</a><a href="./chapter17.html" class="nav-link next">第17章：可微渲染基础 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>
